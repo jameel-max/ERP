@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}استيراد البيانات القديمة (CSV) | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-file-earmark-spreadsheet me-2"></i> استيراد البيانات القديمة (CSV)</h3>
+            <p class="text-muted small mb-0">استيراد سجلات التجار وأنواع الصناديق السابقة من ملفات Excel / CSV</p>
+        </div>
+        <a href="{% url 'home' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-right me-1"></i> العودة للرئيسية</a>
+    </div>
+
+    {% if results %}
+    <div class="alert alert-success border-0 shadow-sm mb-4">
+        <h5 class="alert-heading fw-bold"><i class="bi bi-check-circle-fill me-2"></i> اكتملت عملية الاستيراد بنجاح!</h5>
+        <p class="mb-1">عدد السجلات الجديدة المضافة: <strong>{{ results.imported }}</strong></p>
+        <p class="mb-0">عدد السجلات المحدثة: <strong>{{ results.updated }}</strong></p>
+        {% if results.errors %}
+        <hr>
+        <div class="text-danger small">
+            <strong>ملاحظات وأخطاء بعض الأسطر:</strong>
+            <ul>
+                {% for err in results.errors %}
+                <li>{{ err }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="row g-4">
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header card-header-royal py-3">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-upload me-2"></i> رفع ملف CSV</h5>
+                </div>
+                <div class="card-body p-4 bg-white">
+                    <form method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">اختر نوع البيانات المراد استيرادها:</label>
+                            <select name="import_type" class="form-select" required>
+                                <option value="traders">بيانات التجار (المزارعين)</option>
+                                <option value="boxes">بيانات أنواع الصناديق ومخزونها</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">ملف CSV:</label>
+                            <input type="file" name="csv_file" class="form-control" accept=".csv" required>
+                            <small class="text-muted">الملف يجب أن يكون بترميز UTF-8 وفواصل إنجليزية (Comma).</small>
+                        </div>
+                        <button type="submit" class="btn btn-royal w-100 py-2">
+                            <i class="bi bi-cloud-arrow-up-fill me-1"></i> بدء الاستيراد وتحديث قاعدة البيانات
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h5 class="mb-0 fw-bold text-dark"><i class="bi bi-info-circle text-primary me-2"></i> التنسيق المطلوب للملفات</h5>
+                </div>
+                <div class="card-body p-4">
+                    <h6 class="fw-bold text-success">1. ترويسة ملف التجار (Traders CSV):</h6>
+                    <pre class="bg-light p-2 rounded border small">code,name,phone,notes
+T001,اسم التاجر,0790000000,ملاحظات
+T002,اسم تاجر آخر,0790000001,ملاحظات</pre>
+
+                    <h6 class="fw-bold text-success mt-4">2. ترويسة ملف الصناديق (Boxes CSV):</h6>
+                    <pre class="bg-light p-2 rounded border small">name,color_or_type,tare_weight,discount_price,company_stock
+اسم الصندوق,اللون,0.800,1.500,500
+اسم صندوق آخر,اللون,0.800,1.500,300</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

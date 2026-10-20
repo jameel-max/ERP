@@ -1,0 +1,71 @@
+{% load static %}<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>ملصق طبلية موضبة {{ pallet.packed_pallet_code }} | {{ company_name_en }}</title>
+    <link rel="stylesheet" href="{% static 'vendor/cairo/cairo.css' %}">
+    <style>
+        @page {
+            size: 100mm 150mm;
+            margin: 0;
+        }
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: #fff;
+            font-family: 'Cairo', sans-serif;
+        }
+        .label-page {
+            box-sizing: border-box;
+            width: 100mm;
+            height: 150mm;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .qr-only {
+            display: block;
+            width: 90mm;
+            height: 90mm;
+            image-rendering: pixelated;
+        }
+        .no-print {
+            position: fixed;
+            top: 6px;
+            left: 6px;
+            display: flex;
+            gap: 6px;
+            z-index: 10;
+        }
+        .no-print button,
+        .no-print a {
+            font-family: 'Cairo', sans-serif;
+            font-size: 13px;
+            padding: 6px 14px;
+            border-radius: 6px;
+            border: 1px solid #1B4D3E;
+            background: #1B4D3E;
+            color: #fff;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print">
+        <button type="button" onclick="window.print()">طباعة الملصق</button>
+        <a href="{% url 'packed_pallets_list' %}">رجوع للطبالي الموضبة</a>
+    </div>
+
+    <!-- الملصق: رمز QR فقط بلا أي معلومات، ومسحه يفتح صفحة الطبلية كاملة -->
+    <div class="label-page">
+        <img class="qr-only" src="{{ qr_b64 }}" data-qr-url="{{ qr_url }}"
+             alt="QR {{ pallet.packed_pallet_code }}">
+    </div>
+</body>
+</html>

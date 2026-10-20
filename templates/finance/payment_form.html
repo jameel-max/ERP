@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-royal py-3">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-cash-stack me-2"></i> {{ title }}</h5>
+                </div>
+                <div class="card-body p-4 bg-white">
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">التاجر *</label>
+                                {{ form.trader }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">المبلغ المحصل (دينار) *</label>
+                                {{ form.amount }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">طريقة القبض *</label>
+                                {{ form.payment_method }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">الخزينة / الحساب المودع به</label>
+                                {{ form.treasury_account }}
+                                <div class="form-text small">مطلوب للقبض النقدي أو التحويل البنكي.</div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">{{ form.invoices.label }}</label>
+                                {{ form.invoices }}
+                                <div class="form-text small">تُخصَّص الدفعة على الفواتير المحددة بالتتابع حتى استيفاء المبلغ.</div>
+                                <div class="alert alert-light border small mt-2 mb-0">
+                                    <i class="bi bi-info-circle me-1 text-success"></i>
+                                    لا تظهر هنا إلا الفواتير <strong>المعتمدة</strong> وذات <strong>رصيد متبقٍ أكبر من صفر</strong>.
+                                    إن لم تظهر فاتورة فأنشئها أولاً ثم اربط السيارات وزامنها واعتمدها.
+                                    <div class="mt-1">
+                                        <a href="{% url 'invoice_create' %}" class="fw-bold text-success text-decoration-none">
+                                            <i class="bi bi-plus-circle me-1"></i>إنشاء فاتورة جديدة
+                                        </a>
+                                        &nbsp;|&nbsp;
+                                        <a href="{% url 'invoice_list' %}" class="fw-bold text-success text-decoration-none">
+                                            <i class="bi bi-receipt me-1"></i>إدارة الفواتير
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">البيان / ملاحظات</label>
+                                {{ form.notes }}
+                            </div>
+                        </div>
+                        <div class="alert alert-light border mt-4 small text-muted">
+                            <i class="bi bi-shield-check me-1 text-success"></i>
+                            توزيع الدفعة يتم داخل معاملة قاعدة بيانات واحدة، ولا يُسجَّل إيراد جديد. يُحدَّث رصيد التاجر والخزينة تلقائياً.
+                        </div>
+                        <hr class="my-4">
+                        <div class="d-flex justify-content-between">
+                            <a href="{% url 'payment_list' %}" class="btn btn-outline-secondary">إلغاء</a>
+                            <button type="submit" class="btn btn-royal px-4"><i class="bi bi-check-circle me-1"></i> حفظ سند القبض</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,10 @@
+{% comment %}
+زر حذف منفرد قابل لإعادة الاستخدام.
+الاستخدام: include "core/_delete_button.html" مع app_label و model_name و object_id.
+خيارات إضافية: btn_class، show_text، title.
+{% endcomment %}
+<a href="{% url 'generic_delete' app_label model_name object_id %}"
+   class="btn btn-sm btn-outline-danger {{ btn_class|default:'' }}"
+   title="{{ title|default:'حذف هذا السجل بشكل منفرد' }}">
+    <i class="bi bi-trash"></i>{% if show_text %} حذف{% endif %}
+</a>

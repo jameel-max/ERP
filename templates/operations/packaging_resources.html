@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}موارد التغليف | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-box-seam me-2"></i> موارد التغليف</h3>
+            <p class="text-muted small mb-0">
+                كل مجموعة مستقلة (مثل: الصناديق، ورق التغليف، الستيكرات) وتحتوي على أصنافها ومقاساتها.
+                هذا القسم خاص بمواد التغليف التي تستخدمها الشركة في التوضيب.
+            </p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'box_type_list' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-table me-1"></i> عرض مسطّح لكل الأصناف
+            </a>
+            <a href="{% url 'packaging_group_create' %}" class="btn btn-royal">
+                <i class="bi bi-plus-circle me-1"></i> إضافة نوع تغليف
+            </a>
+        </div>
+    </div>
+
+    {% for group in groups %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white d-flex flex-wrap justify-content-between align-items-center py-3">
+            <div>
+                <h5 class="mb-0 fw-bold text-dark">
+                    <i class="bi bi-folder2-open me-2 text-success"></i>{{ group.name }}
+                    <span class="badge bg-light text-dark border ms-1">{{ group.items.all|length }} صنف</span>
+                    {% if not group.is_active %}<span class="badge bg-secondary ms-1">غير نشطة</span>{% endif %}
+                </h5>
+                {% if group.notes %}<small class="text-muted">{{ group.notes }}</small>{% endif %}
+            </div>
+            <div class="d-flex gap-2 mt-2 mt-md-0">
+                <a href="{% url 'packaging_group_edit' group.pk %}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-pencil me-1"></i> تعديل المجموعة
+                </a>
+                {% include "core/_delete_button.html" with app_label="operations" model_name="packaginggroup" object_id=group.pk btn_class="btn-sm" %}
+                <a href="{% url 'packaging_item_create' group.pk %}" class="btn btn-success btn-sm">
+                    <i class="bi bi-plus-lg me-1"></i> إضافة صنف
+                </a>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>اسم الصنف</th>
+                        <th>المقاس</th>
+                        <th>اللون / النوع</th>
+                        <th>الوزن الفارغ (كغ)</th>
+                        <th>سعر الخصم (د.أ)</th>
+                        <th>رصيد الشركة</th>
+                        <th>الحالة</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in group.items.all %}
+                    <tr>
+                        <td class="fw-bold">{{ item.name }}</td>
+                        <td>{% if item.size %}{{ item.size }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                        <td>{% if item.color_or_type %}<span class="badge bg-light text-dark border">{{ item.color_or_type }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                        <td>{{ item.tare_weight }} كغ</td>
+                        <td class="fw-bold text-success">{{ item.discount_price }} د.أ</td>
+                        <td class="fw-bold fs-5 text-primary">{{ item.company_stock }}</td>
+                        <td>
+                            {% if item.is_active %}
+                            <span class="badge bg-success-subtle text-success">نشط</span>
+                            {% else %}
+                            <span class="badge bg-secondary">غير نشط</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{% url 'packaging_item_edit' item.pk %}" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-pencil me-1"></i> تعديل
+                            </a>
+                            {% include "core/_delete_button.html" with app_label="operations" model_name="boxtype" object_id=item.pk %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="8" class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox fs-4 d-block mb-1 text-secondary"></i>
+                            لا توجد أصناف في هذه المجموعة بعد. اضغط «إضافة صنف».
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% empty %}
+    <div class="card shadow-sm">
+        <div class="card-body text-center py-5 text-muted">
+            <i class="bi bi-boxes fs-1 d-block mb-3 text-secondary"></i>
+            <h5 class="fw-bold">لم يتم إنشاء أي مجموعة تغليف بعد</h5>
+            <p class="mb-3">ابدأ بإنشاء مجموعة مثل «الصناديق»، ثم أضف بداخلها جميع أنواع الصناديق ومقاساتها.</p>
+            <a href="{% url 'packaging_group_create' %}" class="btn btn-royal">
+                <i class="bi bi-plus-circle me-1"></i> إضافة نوع تغليف
+            </a>
+        </div>
+    </div>
+    {% endfor %}
+
+    {% if ungrouped %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white py-3">
+            <h5 class="mb-0 fw-bold text-secondary">
+                <i class="bi bi-collection me-2"></i>أصناف غير مرتبطة بمجموعة
+            </h5>
+            <small class="text-muted">أصناف أُنشئت سابقاً قبل تقسيم موارد التغليف إلى مجموعات.</small>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>اسم الصنف</th>
+                        <th>المقاس</th>
+                        <th>اللون / النوع</th>
+                        <th>الوزن الفارغ (كغ)</th>
+                        <th>رصيد الشركة</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in ungrouped %}
+                    <tr>
+                        <td class="fw-bold">{{ item.name }}</td>
+                        <td>{% if item.size %}{{ item.size }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                        <td>{{ item.color_or_type }}</td>
+                        <td>{{ item.tare_weight }} كغ</td>
+                        <td class="fw-bold fs-5 text-primary">{{ item.company_stock }}</td>
+                        <td>
+                            <a href="{% url 'packaging_item_edit' item.pk %}" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-pencil me-1"></i> تعديل وإضافة لمجموعة
+                            </a>
+                            {% include "core/_delete_button.html" with app_label="operations" model_name="boxtype" object_id=item.pk %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

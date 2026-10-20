@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-royal py-3">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-snow2 me-2"></i> {{ title }}</h5>
+                </div>
+                <div class="card-body p-4 bg-white">
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">رمز البراد *</label>
+                                {{ form.code }}
+                            </div>
+                            <div class="col-md-8">
+                                <label class="form-label fw-bold">اسم البراد *</label>
+                                {{ form.name }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">السعة (طبلية)</label>
+                                {{ form.capacity_pallets }}
+                                <small class="text-muted">اتركه فارغاً إن لم تكن محددة</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">الحرارة الحالية (مئوية)</label>
+                                {{ form.current_temperature }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">عدد الأسياخ داخل البراد *</label>
+                                {{ form.shelves_count }}
+                                <small class="text-muted">{{ form.shelves_count.help_text }}</small>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">ملاحظات</label>
+                                {{ form.notes }}
+                            </div>
+                            {% if form.errors %}
+                            <div class="col-12"><div class="alert alert-danger mb-0">{{ form.errors }}</div></div>
+                            {% endif %}
+                        </div>
+                        <div class="d-flex justify-content-between mt-4">
+                            <a href="{% url 'cold_store_list' %}" class="btn btn-outline-secondary">
+                                <i class="bi bi-arrow-right me-1"></i> رجوع
+                            </a>
+                            <button type="submit" class="btn btn-royal">
+                                <i class="bi bi-save me-1"></i> حفظ البراد وأسياخه
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

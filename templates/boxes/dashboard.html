@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block title %}جرد الصناديق الفارغة وأرصدة التجار | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-inboxes-fill me-2"></i> داشبورد جرد الصناديق الفارغة</h3>
+            <p class="text-muted small mb-0">متابعة مخزون صناديق الشركة، والصناديق بعهدة التجار، واحتساب العجز المالي</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'box_type_list' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-gear me-1"></i> إدارة أنواع الصناديق
+            </a>
+            <a href="{% url 'record_box_movement' %}" class="btn btn-royal">
+                <i class="bi bi-plus-circle me-1"></i> تسجيل حركة صناديق (صرف / إرجاع)
+            </a>
+        </div>
+    </div>
+
+    <!-- بطاقات الملخص السريع للصناديق -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card bg-white border-start border-4 border-success h-100 shadow-sm">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">مخزون صناديق الشركة المتوفر</span>
+                    <h2 class="fw-bold my-1 text-success">{{ total_company_stock }} <span class="fs-6 fw-normal text-muted">صندوق</span></h2>
+                    <small class="text-muted">داخل مستودعات المشغل</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-white border-start border-4 border-primary h-100 shadow-sm">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">الصناديق بعهدة التجار</span>
+                    <h2 class="fw-bold my-1 text-primary">{{ total_trader_custody }} <span class="fs-6 fw-normal text-muted">صندوق</span></h2>
+                    <small class="text-muted">موزعة على ذمم التجار</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-white border-start border-4 border-danger h-100 shadow-sm">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">إجمالي قيمة عجز الصناديق المالي</span>
+                    <h2 class="fw-bold my-1 text-danger">{{ total_financial_deficit }} <span class="fs-6 fw-normal text-muted">دينار</span></h2>
+                    <small class="text-muted">يُخصم تلقائياً في فواتير التجار</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- جدول مخزون الشركة لكل نوع -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white py-3 border-bottom">
+            <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-boxes text-success me-2"></i> مخزون الشركة المتوفر بحسب نوع الصندوق</h5>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>اسم الصندوق</th>
+                        <th>اللون / النوع</th>
+                        <th>الوزن الفارغ</th>
+                        <th>سعر الخصم عند العجز</th>
+                        <th>المخزون المتوفر بالشركة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for b in box_types %}
+                    <tr>
+                        <td class="fw-bold fs-6">{{ b.name }}</td>
+                        <td><span class="badge bg-light text-dark border">{{ b.color_or_type }}</span></td>
+                        <td>{{ b.tare_weight }} كغ</td>
+                        <td class="fw-bold text-success">{{ b.discount_price }} د.أ</td>
+                        <td class="fw-bold fs-5 text-primary">{{ b.company_stock }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- أرصدة التجار لكل نوع صندوق -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header card-header-royal py-3 d-flex justify-content-between align-items-center">
+            <h5 class="fw-bold mb-0"><i class="bi bi-people me-2"></i> أرصدة الصناديق في عهدة التجار (المستلم − المرتجع = الرصيد)</h5>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>التاجر</th>
+                        <th>نوع الصندوق</th>
+                        <th>الصادر للتاجر (المستلم)</th>
+                        <th>الوارد من التاجر (المرتجع)</th>
+                        <th>الرصيد القائم في العهدة</th>
+                        <th>سعر الصندوق المعتمد</th>
+                        <th>قيمة العجز المالي</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for bal in trader_balances %}
+                    <tr>
+                        <td class="fw-bold fs-6">
+                            <a href="{% url 'trader_boxes_statement' bal.trader.id %}" class="text-success text-decoration-none">
+                                {{ bal.trader.name }}
+                            </a>
+                        </td>
+                        <td><span class="badge bg-light text-dark border">{{ bal.box_type.name }}</span></td>
+                        <td>{{ bal.issued_count }}</td>
+                        <td>{{ bal.returned_count }}</td>
+                        <td class="fw-bold fs-6 {% if bal.net_balance > 0 %}text-danger{% else %}text-success{% endif %}">
+                            {{ bal.net_balance }}
+                        </td>
+                        <td>{{ bal.box_type.discount_price }} د.أ</td>
+                        <td class="fw-bold text-danger">{{ bal.total_financial_value }} د.أ</td>
+                        <td>
+                            <a href="{% url 'trader_boxes_statement' bal.trader.id %}" class="btn btn-outline-royal btn-sm">
+                                <i class="bi bi-file-text me-1"></i> كشف الحساب
+                            </a>
+                            {% include "core/_delete_button.html" with app_label="boxes" model_name="traderboxbalance" object_id=bal.pk title="حذف الرصيد بشكل منفرد" %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="8" class="text-center py-4 text-muted">
+                            لا توجد أرصدة صناديق مسجلة على التجار حالياً.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

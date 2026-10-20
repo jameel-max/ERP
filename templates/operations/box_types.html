@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}أنواع الصناديق ومخزون الشركة | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-boxes me-2"></i> أنواع الصناديق ومخزون الشركة</h3>
+            <p class="text-muted small mb-0">أنواع الصناديق يضيفها المحاسب فقط: الاسم، اللون/النوع، الوزن الفارغ، وسعر الخصم على التاجر</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'import_csv' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-file-earmark-spreadsheet me-1"></i> استيراد صناديق CSV
+            </a>
+            <a href="{% url 'box_type_create' %}" class="btn btn-royal">
+                <i class="bi bi-plus-circle me-1"></i> إضافة نوع صندوق جديد
+            </a>
+        </div>
+    </div>
+
+    <!-- جدول الصناديق -->
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>اسم الصندوق</th>
+                        <th>اللون / النوع</th>
+                        <th>الوزن الفارغ (كغ)</th>
+                        <th>سعر الخصم على التاجر (دينار)</th>
+                        <th>رصيد الشركة المتوفر</th>
+                        <th>الحالة</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for box in box_types %}
+                    <tr>
+                        <td class="fw-bold fs-6">{{ box.name }}</td>
+                        <td><span class="badge bg-light text-dark border">{{ box.color_or_type }}</span></td>
+                        <td>{{ box.tare_weight }} كغ</td>
+                        <td class="fw-bold text-success">{{ box.discount_price }} د.أ</td>
+                        <td class="fw-bold fs-5 text-primary">{{ box.company_stock }}</td>
+                        <td>
+                            {% if box.is_active %}
+                            <span class="badge bg-success-subtle text-success">نشط</span>
+                            {% else %}
+                            <span class="badge bg-secondary">غير نشط</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{% url 'box_type_edit' box.pk %}" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-pencil me-1"></i> تعديل
+                            </a>
+                            {% include "core/_delete_button.html" with app_label="operations" model_name="boxtype" object_id=box.pk %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center py-5 text-muted">
+                            <i class="bi bi-inbox fs-1 d-block mb-2 text-secondary"></i>
+                            لم يتم تعريف أي نوع صناديق بعد. اضغط على "إضافة نوع صندوق جديد".
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

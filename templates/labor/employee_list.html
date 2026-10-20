@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}الموظفون (رواتب شهرية) | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-primary">
+                <i class="bi bi-person-badge me-2"></i> الموظفون (رواتب شهرية)
+            </h3>
+            <p class="text-muted small mb-0">
+                قسم مستقل تماماً عن «الورش والعمالة»: هؤلاء موظفون برواتب شهرية ثابتة،
+                ولا دخل لهم في التوضيب ولا في كلفة الكيلو الموضب ولا في فواتير التجار.
+            </p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'salary_report' %}" class="btn btn-outline-info">
+                <i class="bi bi-graph-up me-1"></i> تقرير الرواتب
+            </a>
+            <a href="{% url 'workshop_list' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-tools me-1"></i> الورش والعمالة
+            </a>
+            {% if user.is_manager %}
+            <a href="{% url 'employee_create' %}" class="btn btn-royal">
+                <i class="bi bi-person-plus-fill me-1"></i> إضافة موظف
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if messages %}
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="إغلاق"></button>
+        </div>
+        {% endfor %}
+    {% endif %}
+
+    <!-- ملخص -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card bg-white border-start border-4 border-primary h-100 shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">عدد الموظفين على رأس العمل</div>
+                    <div class="fs-4 fw-bold text-primary">{{ active_count }} <span class="fs-6 text-muted">/ {{ total_count }}</span></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-white border-start border-4 border-success h-100 shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">إجمالي الرواتب الشهرية (النشطون)</div>
+                    <div class="fs-4 fw-bold text-success">{{ total_monthly }} د.أ</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-white border-start border-4 border-info h-100 shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">الإجمالي السنوي المتوقع (النشطون)</div>
+                    <div class="fs-4 fw-bold text-info">{{ total_monthly|floatformat:3 }} × 12 د.أ</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-header bg-white border-bottom py-3">
+            <h6 class="mb-0 fw-bold text-dark"><i class="bi bi-list-ul me-1"></i> قائمة الموظفين</h6>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>الموظف</th>
+                        <th>المسمى الوظيفي</th>
+                        <th>الهاتف</th>
+                        <th class="text-center">الراتب الشهري</th>
+                        <th class="text-center">عدد الأشهر المصروفة</th>
+                        <th class="text-center">الحالة</th>
+                        <th class="text-center">إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in employees %}
+                    <tr>
+                        <td class="fw-bold">{{ e.name }}</td>
+                        <td>{{ e.job_title|default:"—" }}</td>
+                        <td>{{ e.phone|default:"—" }}</td>
+                        <td class="text-center fw-bold text-success">{{ e.monthly_salary }} د.أ</td>
+                        <td class="text-center">
+                            <span class="badge bg-light text-dark border">{{ e.salary_payments.count }} قيد</span>
+                        </td>
+                        <td class="text-center">
+                            {% if e.is_active %}
+                            <span class="badge bg-success">على رأس العمل</span>
+                            {% else %}
+                            <span class="badge bg-secondary">منتهية خدمته</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            <div class="d-flex justify-content-center gap-1">
+                                <a href="{% url 'employee_detail' e.pk %}" class="btn btn-sm btn-outline-royal" title="بطاقة الموظف وسجل الرواتب">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                                {% if user.is_manager %}
+                                <a href="{% url 'employee_edit' e.pk %}" class="btn btn-sm btn-outline-primary" title="تعديل">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                {% include "core/_delete_button.html" with app_label="labor" model_name="employee" object_id=e.pk title="حذف الموظف بشكل منفرد" %}
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center py-5 text-muted">
+                            <i class="bi bi-person-badge fs-3 d-block mb-2 text-secondary"></i>
+                            لا يوجد موظفون مسجّلون بعد.
+                            {% if user.is_manager %}
+                            <a href="{% url 'employee_create' %}" class="text-success fw-bold">أضِف أول موظف</a>.
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="alert alert-light border mt-3 small text-muted">
+        <i class="bi bi-info-circle me-1 text-primary"></i>
+        رواتب الموظفين <strong>لا تدخل</strong> في كلفة الكيلو الموضب ولا في فاتورة التاجر — تُسجَّل كقيد مستقل،
+        ويُخصم المدفوع منها من الخزينة مرة واحدة فقط عند الصرف الفعلي.
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}جرس الإشعارات والتنبيهات | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-bell-fill me-2"></i> سجل الإشعارات وتنبيهات الحقول الناقصة</h3>
+            <p class="text-muted small mb-0">متابعة الحقول غير الحرجة وتنبيهات الأقدم أولاً والعمليات التشغيلية</p>
+        </div>
+        <a href="{% url 'home' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-right me-1"></i> العودة للرئيسية</a>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>الأهمية</th>
+                        <th>العنوان</th>
+                        <th>تفاصيل التنبيه</th>
+                        <th>تاريخ الإنشاء</th>
+                        <th>الحالة</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for notif in notifications %}
+                    <tr class="{% if not notif.is_resolved %}table-warning-subtle{% endif %}">
+                        <td>
+                            {% if notif.severity == 'CRITICAL' %}
+                            <span class="badge bg-danger">حرج</span>
+                            {% elif notif.severity == 'WARNING' %}
+                            <span class="badge bg-warning text-dark">تنبيه</span>
+                            {% else %}
+                            <span class="badge bg-info text-dark">معلومة</span>
+                            {% endif %}
+                        </td>
+                        <td class="fw-bold">{{ notif.title }}</td>
+                        <td>{{ notif.message }}</td>
+                        <td><small class="text-muted">{{ notif.created_at|date:"Y-m-d H:i" }}</small></td>
+                        <td>
+                            {% if notif.is_resolved %}
+                            <span class="badge bg-success"><i class="bi bi-check2"></i> تم الحل</span>
+                            {% else %}
+                            <span class="badge bg-danger">بانتظار الإكمال</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                {% if notif.link %}
+                                <a href="{{ notif.link }}" class="btn btn-primary" title="انتقال لتعديل السجل">
+                                    <i class="bi bi-pencil-square me-1"></i> تعديل وإكمال
+                                </a>
+                                {% endif %}
+                                {% if not notif.is_resolved %}
+                                <a href="{% url 'notification_resolve' notif.pk %}" class="btn btn-outline-success" title="وضع علامة كـ منتهي">
+                                    <i class="bi bi-check-lg"></i> تم الحل
+                                </a>
+                                {% endif %}
+                                {% include "core/_delete_button.html" with app_label="core" model_name="notification" object_id=notif.pk title="حذف الإشعار بشكل منفرد" %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-muted">
+                            <i class="bi bi-check2-circle fs-2 text-success d-block mb-1"></i>
+                            لا توجد إشعارات مسجلة. كل البيانات مكتملة ولا توجد حقول ناقصة!
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-9">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-royal py-3">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-box-arrow-up-left me-2"></i> {{ title }}</h5>
+                </div>
+                <div class="card-body p-4 bg-white">
+                    <div class="alert alert-light border small text-muted">
+                        <i class="bi bi-info-circle me-1 text-success"></i>
+                        <strong>إرجاع للمزرعة:</strong> خروج الفارغ بلا مقابل مالي (وزنه محسوم أصلاً من صافي الاستلام).<br>
+                        <strong>بيع لمنظمة:</strong> يتطلب سعر الصندوق وطريقة القبض؛ وعند الاعتماد يُقيَّد المبلغ في الخزينة
+                        (إلا إذا اخترت «على الحساب» فيبقى بلا قيد خزينة).
+                    </div>
+
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">نوع التسليم *</label>
+                                {{ form.kind }}
+                                {% if form.kind.errors %}<div class="text-danger small">{{ form.kind.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">الجهة المستلمة *</label>
+                                {{ form.recipient }}
+                                <small class="text-muted">
+                                    لا تجد الجهة؟ <a href="{% url 'empty_box_recipient_create' %}">أضف جهة جديدة</a>
+                                </small>
+                                {% if form.recipient.errors %}<div class="text-danger small">{{ form.recipient.errors }}</div>{% endif %}
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">نوع الصندوق *</label>
+                                {{ form.box_type }}
+                                {% if form.box_type.help_text %}<small class="text-muted">{{ form.box_type.help_text }}</small>{% endif %}
+                                {% if form.box_type.errors %}<div class="text-danger small">{{ form.box_type.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">عدد الصناديق *</label>
+                                {{ form.quantity }}
+                                {% if form.quantity.errors %}<div class="text-danger small">{{ form.quantity.errors }}</div>{% endif %}
+                            </div>
+
+                            <div class="col-md-6" id="unitPriceBox">
+                                <label class="form-label fw-bold">سعر الصندوق الواحد (دينار)</label>
+                                {{ form.unit_price }}
+                                <small class="text-muted">{{ form.unit_price.help_text }}</small>
+                                {% if form.unit_price.errors %}<div class="text-danger small">{{ form.unit_price.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-6" id="paymentMethodBox">
+                                <label class="form-label fw-bold">طريقة القبض</label>
+                                {{ form.payment_method }}
+                                <small class="text-muted">{{ form.payment_method.help_text }}</small>
+                                {% if form.payment_method.errors %}<div class="text-danger small">{{ form.payment_method.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-6" id="treasuryBox">
+                                <label class="form-label fw-bold">الخزينة المستلمة</label>
+                                {{ form.treasury_account }}
+                                <small class="text-muted">إلزامية للبيع النقدي/البنكي — تُترك فارغة مع «على الحساب».</small>
+                                {% if form.treasury_account.errors %}<div class="text-danger small">{{ form.treasury_account.errors }}</div>{% endif %}
+                            </div>
+
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">تاريخ التسليم *</label>
+                                {{ form.delivery_date }}
+                                {% if form.delivery_date.errors %}<div class="text-danger small">{{ form.delivery_date.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">اسم السائق / الناقل</label>
+                                {{ form.driver_name }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">رقم السيارة</label>
+                                {{ form.vehicle_plate }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">الحالة *</label>
+                                {{ form.status }}
+                                <small class="text-muted">«مسودة» تُعتمد لاحقاً بزر الاعتماد في صفحة الأمر.</small>
+                                {% if form.status.errors %}<div class="text-danger small">{{ form.status.errors }}</div>{% endif %}
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label fw-bold">ملاحظات</label>
+                                {{ form.notes }}
+                            </div>
+                        </div>
+
+                        <div class="alert alert-success-subtle border small mt-3 d-none" id="salePreview">
+                            الإجمالي المتوقع: <strong id="saleTotal">0.000</strong> دينار
+                            (<span id="saleQty">0</span> × <span id="salePrice">0.000</span>)
+                        </div>
+
+                        {% if form.non_field_errors %}
+                        <div class="alert alert-danger small">{{ form.non_field_errors }}</div>
+                        {% endif %}
+
+                        <hr class="my-4">
+                        <div class="d-flex justify-content-between">
+                            <a href="{% if delivery %}{% url 'empty_box_delivery_detail' delivery.pk %}{% else %}{% url 'empty_box_delivery_list' %}{% endif %}"
+                               class="btn btn-outline-secondary">إلغاء</a>
+                            <button type="submit" class="btn btn-royal px-4">
+                                <i class="bi bi-check2 me-1"></i> حفظ أمر التسليم
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const kind = document.getElementById('id_kind');
+    const priceBox = document.getElementById('unitPriceBox');
+    const methodBox = document.getElementById('paymentMethodBox');
+    const treasuryBox = document.getElementById('treasuryBox');
+    const qty = document.getElementById('id_quantity');
+    const price = document.getElementById('id_unit_price');
+    const method = document.getElementById('id_payment_method');
+    const preview = document.getElementById('salePreview');
+
+    function syncKind() {
+        const isSale = kind.value === 'SALE';
+        [priceBox, methodBox, treasuryBox].forEach(function (el) {
+            if (el) el.classList.toggle('d-none', !isSale);
+        });
+        if (!isSale) {
+            if (price) price.value = '0.000';
+            if (method) method.value = '';
+            if (preview) preview.classList.add('d-none');
+        } else {
+            syncTotal();
+        }
+    }
+
+    function syncTotal() {
+        if (!preview) return;
+        if (kind.value !== 'SALE') { preview.classList.add('d-none'); return; }
+        const q = parseFloat(qty.value || '0');
+        const p = parseFloat(price.value || '0');
+        const total = (q * p).toFixed(3);
+        document.getElementById('saleQty').textContent = q || 0;
+        document.getElementById('salePrice').textContent = p.toFixed(3);
+        document.getElementById('saleTotal').textContent = total;
+        preview.classList.remove('d-none');
+    }
+
+    if (kind) {
+        kind.addEventListener('change', syncKind);
+        syncKind();
+    }
+    [qty, price].forEach(function (el) { if (el) el.addEventListener('input', syncTotal); });
+    syncTotal();
+})();
+</script>
+{% endblock %}

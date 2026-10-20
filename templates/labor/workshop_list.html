@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}الورش والعمال | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-people-fill me-2"></i> الورش والعمال (إدارة الأجور وساعات العمل)</h3>
+            <p class="text-muted small mb-0">توثيق ساعات عمل الورش وبدلات المواصلات واحتساب تكلفة الكيلوغرام الموضب</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'labor_cost_report' %}" class="btn btn-outline-info">
+                <i class="bi bi-pie-chart me-1"></i> تقرير كلفة الكيلوغرام
+            </a>
+            <a href="{% url 'record_daily_labor' %}" class="btn btn-outline-success">
+                <i class="bi bi-clock-history me-1"></i> توثيق يوم عمل جديد
+            </a>
+            {% if user.is_manager %}
+            <a href="{% url 'workshop_create' %}" class="btn btn-royal">
+                <i class="bi bi-plus-circle me-1"></i> إضافة ورشة جديدة
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- كروت الورش -->
+    <div class="row g-4">
+        {% for w in workshops %}
+        <div class="col-md-6 col-lg-4">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header card-header-royal py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="fw-bold mb-0 text-white">{{ w.name }}</h5>
+                    {% if w.is_active %}
+                    <span class="badge bg-success-subtle text-white border">نشطة</span>
+                    {% else %}
+                    <span class="badge bg-secondary">متوقفة</span>
+                    {% endif %}
+                </div>
+                <div class="card-body p-4 bg-white">
+                    <div class="mb-3">
+                        <div class="text-muted small">المشرف / المسؤول:</div>
+                        <div class="fw-bold text-dark fs-6">{{ w.supervisor_name|default:"غير محدد" }} ({{ w.phone|default:"بدون هاتف" }})</div>
+                    </div>
+                    <div class="row g-2 mb-3 small">
+                        <div class="col-6">
+                            <div class="bg-light p-2 rounded border">
+                                <span class="text-muted d-block">سعر الساعة:</span>
+                                <strong class="text-success fs-6">{{ w.default_hourly_rate }} د.أ</strong>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="bg-light p-2 rounded border">
+                                <span class="text-muted d-block">بدل المواصلات:</span>
+                                <strong class="text-primary fs-6">{{ w.default_transport_daily }} د.أ/عامل</strong>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+                        <span class="text-muted small">أيام العمل المسجلة: <strong>{{ w.daily_logs.count }} يوم</strong></span>
+                        <a href="{% url 'workshop_detail' w.pk %}" class="btn btn-outline-royal btn-sm">
+                            <i class="bi bi-calendar3 me-1"></i> فتح سجل الورشة
+                        </a>
+                        {% include "core/_delete_button.html" with app_label="labor" model_name="workshop" object_id=w.pk title="حذف الورشة بشكل منفرد" %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% empty %}
+        <div class="col-12 text-center py-5 text-muted">
+            <i class="bi bi-people fs-1 d-block mb-2 text-secondary"></i>
+            لا توجد ورش مسجلة بعد. يمكنك <a href="{% url 'workshop_create' %}" class="text-success fw-bold">إضافة ورشة عمل جديدة</a>.
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

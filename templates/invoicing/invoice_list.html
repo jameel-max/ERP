@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}قائمة الفواتير | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-receipt me-2"></i> فواتير المشغل والتجار</h3>
+            <p class="text-muted small mb-0">الفواتير مقسمة حسب التاجر، السنة المالية، ونوع البضاعة</p>
+        </div>
+        <a href="{% url 'invoice_create' %}" class="btn btn-royal">
+            <i class="bi bi-plus-circle me-1"></i> إنشاء فاتورة جديدة
+        </a>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>رقم الفاتورة</th>
+                        <th>السنة</th>
+                        <th>التاجر</th>
+                        <th>نوع البضاعة</th>
+                        <th>طريقة التوضيب</th>
+                        <th>سعر الكغ المجمد</th>
+                        <th>الكغ الموضب</th>
+                        <th>الإجمالي النهائي</th>
+                        <th>الحالة</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for inv in invoices %}
+                    <tr>
+                        <td class="fw-bold">
+                            <a href="{% url 'invoice_detail' inv.pk %}" class="text-success text-decoration-none">
+                                {{ inv.invoice_number }}
+                            </a>
+                        </td>
+                        <td>{{ inv.year }}</td>
+                        <td class="fw-bold">{{ inv.trader.name }}</td>
+                        <td><span class="badge bg-light text-dark border">{{ inv.crop.name }}</span></td>
+                        <td>{{ inv.get_packing_method_display }}</td>
+                        <td>{{ inv.packing_rate_snapshot }} د.أ</td>
+                        <td>{{ inv.total_packed_kg }} كغ</td>
+                        <td class="fw-bold text-success">{{ inv.grand_total }} د.أ</td>
+                        <td>
+                            {% if inv.status == 'APPROVED' %}
+                            <span class="badge bg-success">معتمدة</span>
+                            {% elif inv.status == 'PAID' %}
+                            <span class="badge bg-primary">مسددة</span>
+                            {% elif inv.status == 'CANCELLED' %}
+                            <span class="badge bg-danger">ملغاة</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">مسودة</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{% url 'invoice_detail' inv.pk %}" class="btn btn-outline-royal btn-sm">
+                                <i class="bi bi-eye me-1"></i> فتح الفاتورة
+                            </a>
+                            {% include "core/_delete_button.html" with app_label="invoicing" model_name="invoice" object_id=inv.pk title="حذف الفاتورة بشكل منفرد" %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="10" class="text-center py-5 text-muted">
+                            <i class="bi bi-receipt fs-1 d-block mb-2 text-secondary"></i>
+                            لا توجد فواتير منشأة حالياً. اضغط على <a href="{% url 'invoice_create' %}" class="text-success fw-bold">إنشاء فاتورة جديدة</a>.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

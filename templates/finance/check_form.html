@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-7">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-royal py-3">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-bank me-2"></i> {{ title }}</h5>
+                </div>
+                <div class="card-body p-4 bg-white">
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">رقم الشيك *</label>
+                                {{ form.check_number }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">التاجر الساحب *</label>
+                                {{ form.trader }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">البنك المسحوب عليه *</label>
+                                {{ form.bank_name }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">مبلغ الشيك (دينار) *</label>
+                                {{ form.amount }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">تاريخ الاستحقاق *</label>
+                                {{ form.due_date }}
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">ملاحظات الشيك</label>
+                                {{ form.notes }}
+                            </div>
+                        </div>
+                        <div class="alert alert-warning border mt-4 small mb-0">
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            يُسجَّل الشيك بحالة "مسجل" ولا يُضاف إلى النقدية. يُحدَّث الرصيد والذمة فقط عند التحصيل الفعلي أو الارتجاع.
+                        </div>
+                        <hr class="my-4">
+                        <div class="d-flex justify-content-between">
+                            <a href="{% url 'check_list' %}" class="btn btn-outline-secondary">إلغاء</a>
+                            <button type="submit" class="btn btn-royal px-4"><i class="bi bi-check-circle me-1"></i> تسجيل الشيك</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

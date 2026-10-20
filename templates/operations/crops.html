@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}أنواع البضاعة | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-basket me-2"></i> أنواع البضاعة</h3>
+            <p class="text-muted small mb-0">أصناف البضاعة/الفواكه التي يستلمها المشغل (مثل: نكتارين، مشمش، خوخ، دراق، عنب). أضِف النوع هنا ليظهر في شاشات استلام السيارات والتوضيب والفواتير.</p>
+        </div>
+        <a href="{% url 'crop_create' %}" class="btn btn-royal">
+            <i class="bi bi-plus-circle me-1"></i> إضافة نوع بضاعة جديد
+        </a>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>نوع البضاعة</th>
+                        <th>الرمز</th>
+                        <th>ملاحظات</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for crop in crops %}
+                    <tr>
+                        <td class="fw-bold fs-6">{{ crop.name }}</td>
+                        <td>
+                            {% if crop.code %}
+                            <span class="badge bg-light text-dark border">{{ crop.code }}</span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted small">{{ crop.notes|default:"—" }}</td>
+                        <td>
+                            <a href="{% url 'crop_edit' crop.pk %}" class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-pencil me-1"></i> تعديل
+                            </a>
+                            {% include "core/_delete_button.html" with app_label="operations" model_name="crop" object_id=crop.pk %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="4" class="text-center text-muted py-5">
+                            <i class="bi bi-basket fs-1 d-block mb-2 text-secondary"></i>
+                            لا توجد أنواع بضاعة بعد.
+                            <a href="{% url 'crop_create' %}" class="fw-bold text-success">اضغط هنا لإضافة نوع بضاعة جديد</a>.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

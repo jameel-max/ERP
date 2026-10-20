@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+
+{% block title %}كشف حساب: {{ trader.name }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom no-print">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-journal-text me-2"></i> كشف الحساب المالي المرتب: {{ trader.name }}</h3>
+            <p class="text-muted small mb-0">استلام، توضيب، صناديق، دفعات، ورصيد تراكمي — وكل سطر يمكن تتبعه إلى الحركة الأصلية.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary" onclick="window.print()"><i class="bi bi-printer me-1"></i> طباعة</button>
+            <a href="{% url 'trader_boxes_statement' trader.pk %}" class="btn btn-outline-info"><i class="bi bi-inboxes me-1"></i> كشف الصناديق</a>
+            <a href="{% url 'trader_detail' trader.pk %}" class="btn btn-outline-royal"><i class="bi bi-person me-1"></i> صفحة التاجر</a>
+        </div>
+    </div>
+
+    <!-- ملخص الأرصدة -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card border-start border-4 border-danger h-100">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">إجمالي المدين (المستحق)</span>
+                    <h3 class="fw-bold my-1 text-danger">{{ total_debit }} د.أ</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-start border-4 border-success h-100">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">إجمالي الدائن (المحصّل)</span>
+                    <h3 class="fw-bold my-1 text-success">{{ total_credit }} د.أ</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-start border-4 border-primary h-100">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">صافي الرصيد الحالي</span>
+                    <h3 class="fw-bold my-1 text-primary">{{ current_net_debt }} د.أ</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-start border-4 border-warning h-100">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">الشيكات قيد التحصيل</span>
+                    <h3 class="fw-bold my-1 text-warning">
+                        {% for c in checks %}{% if c.status == 'REGISTERED' or c.status == 'UNDER_COLLECTION' %}{{ c.amount }} د.أ{% endif %}{% empty %}0.000 د.أ{% endfor %}
+                    </h3>
+                    <small class="text-muted">لا تُعدّ نقداً متاحاً بعد</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- كشف الحساب T-account -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header card-header-royal py-3">
+            <h5 class="fw-bold mb-0"><i class="bi bi-list-columns-reverse me-2"></i> القيود المالية المرتبة (مدين / دائن / الرصيد)</h5>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>التاريخ</th>
+                        <th>نوع القيد</th>
+                        <th>المرجع</th>
+                        <th>البيان</th>
+                        <th>مدين</th>
+                        <th>دائن</th>
+                        <th>الرصيد التراكمي</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in entries %}
+                    <tr>
+                        <td class="small">{{ e.timestamp|date:"Y-m-d H:i" }}</td>
+                        <td><span class="badge bg-light text-dark border">{{ e.get_entry_type_display }}</span></td>
+                        <td class="fw-bold small">{{ e.reference_number }}</td>
+                        <td>{{ e.description }}</td>
+                        <td class="{% if e.debit > 0 %}text-danger fw-bold{% endif %}">{{ e.debit }}</td>
+                        <td class="{% if e.credit > 0 %}text-success fw-bold{% endif %}">{{ e.credit }}</td>
+                        <td class="fw-bold">{{ e.balance_after }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="7" class="text-center py-4 text-muted">لا توجد قيود مالية مسجلة على هذا التاجر بعد.</td></tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot class="table-light">
+                    <tr class="fw-bold">
+                        <td colspan="4" class="text-end">الإجماليات</td>
+                        <td class="text-danger">{{ total_debit }}</td>
+                        <td class="text-success">{{ total_credit }}</td>
+                        <td>{{ current_net_debt }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <!-- الفواتير -->
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-receipt me-1 text-success"></i> فواتير التاجر</h6>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light"><tr><th>الفاتورة</th><th>البضاعة</th><th>الإجمالي</th><th>المسدد</th><th>المتبقي</th><th>الحالة</th></tr></thead>
+                        <tbody>
+                            {% for inv in invoices %}
+                            <tr>
+                                <td><a href="{% url 'invoice_detail' inv.pk %}" class="fw-bold text-success text-decoration-none">{{ inv.invoice_number }}</a></td>
+                                <td>{{ inv.crop.name }} ({{ inv.year }})</td>
+                                <td>{{ inv.grand_total }}</td>
+                                <td class="text-success">{{ inv.paid_amount }}</td>
+                                <td class="text-danger fw-bold">{{ inv.remaining_balance }}</td>
+                                <td><span class="badge bg-light text-dark border">{{ inv.get_status_display }}</span></td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="6" class="text-center py-3 text-muted">لا توجد فواتير.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- الدفعات والشيكات -->
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-cash-stack me-1 text-primary"></i> الدفعات والشيكات</h6>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light"><tr><th>السند</th><th>المبلغ</th><th>الطريقة</th><th>التاريخ</th></tr></thead>
+                        <tbody>
+                            {% for p in payments %}
+                            <tr>
+                                <td class="fw-bold">{{ p.receipt_number }}</td>
+                                <td class="text-success fw-bold">{{ p.amount }} د.أ</td>
+                                <td>{{ p.get_payment_method_display }}</td>
+                                <td>{{ p.payment_date }}</td>
+                            </tr>
+                            {% endfor %}
+                            {% for c in checks %}
+                            <tr class="table-light">
+                                <td><i class="bi bi-bank me-1"></i> شيك {{ c.check_number }}</td>
+                                <td class="fw-bold">{{ c.amount }} د.أ</td>
+                                <td>{{ c.get_status_display }} ({{ c.bank_name }})</td>
+                                <td>{{ c.due_date }}</td>
+                            </tr>
+                            {% endfor %}
+                            {% if not payments and not checks %}
+                            <tr><td colspan="4" class="text-center py-3 text-muted">لا توجد دفعات أو شيكات.</td></tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

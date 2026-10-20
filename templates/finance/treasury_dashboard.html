@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+
+{% block title %}الخزينة والحسابات المالية | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-safe2-fill me-2"></i> الخزينة والحسابات المالية</h3>
+            <p class="text-muted small mb-0">المقبوضات، المدفوعات، التحويلات الداخلية، وأرصدة النقدية والحسابات البنكية</p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{% url 'payment_create' %}" class="btn btn-royal">
+                <i class="bi bi-cash-coin me-1"></i> سند قبض جديد
+            </a>
+            <a href="{% url 'expense_create' %}" class="btn btn-outline-danger">
+                <i class="bi bi-receipt-cutoff me-1"></i> تسجيل مصروف
+            </a>
+            {% if user.is_manager %}
+            <a href="{% url 'treasury_account_create' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-plus-circle me-1"></i> إضافة حساب / خزينة
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- المؤشرات المالية المعتمدة -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-6 col-xl-3">
+            <div class="card bg-white border-start border-4 border-success h-100 shadow-sm">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">الإيراد المكتسب (المعتمد)</span>
+                    <h3 class="fw-bold my-1 text-success">{{ kpis.earned_revenue }} <span class="fs-6 fw-normal text-muted">د.أ</span></h3>
+                    <small class="text-muted">فواتير معتمدة ومسددة</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <div class="card bg-white border-start border-4 border-danger h-100 shadow-sm">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">المصاريف التشغيلية (الاستحقاق)</span>
+                    <h3 class="fw-bold my-1 text-danger">{{ kpis.operating_expenses }} <span class="fs-6 fw-normal text-muted">د.أ</span></h3>
+                    <small class="text-muted">أساس الاستحقاق دون المصاريف الملغاة</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <div class="card bg-white border-start border-4 border-primary h-100 shadow-sm">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">النتيجة التشغيلية الأولية</span>
+                    <h3 class="fw-bold my-1 {% if kpis.operating_result >= 0 %}text-primary{% else %}text-danger{% endif %}">
+                        {{ kpis.operating_result }} د.أ
+                    </h3>
+                    <small class="text-muted">الإيراد المكتسب − المصاريف المعتمدة</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <div class="card bg-white border-start border-4 border-info h-100 shadow-sm">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">رصيد الخزينة والبنوك</span>
+                    <h3 class="fw-bold my-1 text-info">{{ total_balance }} <span class="fs-6 fw-normal text-muted">د.أ</span></h3>
+                    <small class="text-muted">مجموع الأرصدة الفعلية الحالية</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card bg-light border h-100">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">صافي التدفق النقدي الفعلي</span>
+                    <h4 class="fw-bold my-1 {% if kpis.net_cash_flow >= 0 %}text-success{% else %}text-danger{% endif %}">{{ kpis.net_cash_flow }} د.أ</h4>
+                    <small class="text-muted">مقبوضات نقدية فعلية {{ kpis.actual_cash_in }} − مدفوعات فعلية {{ kpis.actual_cash_out }}</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-light border h-100">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">صافي الذمم المدينة</span>
+                    <h4 class="fw-bold my-1 text-warning">{{ kpis.net_receivables }} د.أ</h4>
+                    <small class="text-muted">المستحق على التجار − التحصيلات المخصصة</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-light border h-100">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">شيكات قيد التحصيل</span>
+                    <h4 class="fw-bold my-1 text-secondary">{{ kpis.checks_under_collection }} د.أ</h4>
+                    <small class="text-muted">غير محصلة ولا تُحتسب نقداً متاحاً</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- الحسابات والخزائن -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header card-header-royal py-3 d-flex justify-content-between align-items-center">
+            <h5 class="fw-bold mb-0"><i class="bi bi-wallet2 me-2"></i> الحسابات والخزائن</h5>
+            <a href="{% url 'internal_transfer_create' %}" class="btn btn-light btn-sm fw-bold">
+                <i class="bi bi-arrow-left-right me-1"></i> تحويل داخلي
+            </a>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>اسم الحساب / الخزينة</th>
+                        <th>النوع</th>
+                        <th>رقم الحساب / IBAN</th>
+                        <th>الرصيد الافتتاحي</th>
+                        <th>الرصيد الحالي</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for acc in accounts %}
+                    <tr>
+                        <td class="fw-bold">{{ acc.name }}</td>
+                        <td><span class="badge bg-light text-dark border">{{ acc.get_account_type_display }}</span></td>
+                        <td>{{ acc.bank_account_number|default:"—" }}</td>
+                        <td>{{ acc.opening_balance }} د.أ</td>
+                        <td class="fw-bold fs-6 text-success">{{ acc.current_balance }} د.أ</td>
+                        <td>
+                            {% if user.is_manager %}
+                            {% include "core/_delete_button.html" with app_label="finance" model_name="treasuryaccount" object_id=acc.pk title="حذف الحساب بشكل منفرد" %}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-muted">
+                            لا توجد حسابات خزينة مسجلة. {% if user.is_manager %}<a href="{% url 'treasury_account_create' %}" class="text-success fw-bold">أضف أول حساب</a>.{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <!-- أحدث المقبوضات -->
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                    <h6 class="fw-bold mb-0 text-success"><i class="bi bi-cash-stack me-1"></i> أحدث سندات القبض</h6>
+                    <a href="{% url 'payment_list' %}" class="small text-decoration-none text-success fw-bold">عرض الكل</a>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr><th>سند القبض</th><th>التاجر</th><th>المبلغ</th><th>الطريقة</th><th>التاريخ</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for p in recent_payments %}
+                            <tr>
+                                <td class="fw-bold">{{ p.receipt_number }}</td>
+                                <td>{{ p.trader.name }}</td>
+                                <td class="text-success fw-bold">{{ p.amount }} د.أ</td>
+                                <td>{{ p.get_payment_method_display }}</td>
+                                <td>{{ p.payment_date }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="5" class="text-center py-3 text-muted">لا توجد مقبوضات مسجلة بعد.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- أحدث المصاريف -->
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                    <h6 class="fw-bold mb-0 text-danger"><i class="bi bi-receipt me-1"></i> أحدث المصاريف</h6>
+                    <a href="{% url 'expense_list' %}" class="small text-decoration-none text-danger fw-bold">عرض الكل</a>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr><th>البيان</th><th>التصنيف</th><th>المبلغ</th><th>الحالة</th><th>الاستحقاق</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for e in recent_expenses %}
+                            <tr>
+                                <td>{{ e.description }}</td>
+                                <td><span class="badge bg-light text-dark border">{{ e.category.name }}</span></td>
+                                <td class="text-danger fw-bold">{{ e.amount }} د.أ</td>
+                                <td>
+                                    {% if e.status == 'PAID' %}<span class="badge bg-success-subtle text-success border border-success">مدفوع</span>
+                                    {% elif e.status == 'ACCRUED' %}<span class="badge bg-warning-subtle text-dark border border-warning">مستحق</span>
+                                    {% else %}<span class="badge bg-secondary">ملغى</span>{% endif %}
+                                </td>
+                                <td>{{ e.due_date }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="5" class="text-center py-3 text-muted">لا توجد مصاريف مسجلة بعد.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- الشيكات قيد التحصيل -->
+    <div class="card shadow-sm mt-3">
+        <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+            <h6 class="fw-bold mb-0 text-dark"><i class="bi bi-bank me-1"></i> الشيكات قيد التحصيل (ليست نقداً متاحاً بعد)</h6>
+            <a href="{% url 'check_list' %}" class="small text-decoration-none text-dark fw-bold">إدارة الشيكات</a>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr><th>رقم الشيك</th><th>التاجر</th><th>البنك</th><th>المبلغ</th><th>الاستحقاق</th><th>الحالة</th></tr>
+                </thead>
+                <tbody>
+                    {% for c in checks_under_collection %}
+                    <tr>
+                        <td class="fw-bold">{{ c.check_number }}</td>
+                        <td>{{ c.trader.name }}</td>
+                        <td>{{ c.bank_name }}</td>
+                        <td class="fw-bold">{{ c.amount }} د.أ</td>
+                        <td>{{ c.due_date }}</td>
+                        <td><span class="badge bg-warning text-dark">{{ c.get_status_display }}</span></td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="text-center py-3 text-muted">لا توجد شيكات قيد التحصيل حالياً.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

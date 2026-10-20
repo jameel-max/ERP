@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}كشف التبريد اليومي | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-primary"><i class="bi bi-clipboard-data me-2"></i> كشف خدمة التبريد اليومية للطبالي الموضبة</h3>
+            <p class="text-muted small mb-0">
+                عدد أيام بقاء كل طبلية موضبة في البراد × الأجرة اليومية المعتمدة.
+                الأجرة الحالية: <strong>{{ statement.rate }} دينار / طبلية / يوم</strong>.
+                {% if not statement.rate %}
+                <span class="text-danger">الأجرة غير محددة (0) — اضبطها من الإعدادات لاحتساب الكشف.</span>
+                {% endif %}
+            </p>
+        </div>
+        <div class="d-flex gap-2 no-print">
+            <a href="{% url 'packed_pallet_cooling_in' %}" class="btn btn-primary">
+                <i class="bi bi-snow2 me-1"></i> إدخال موضب للتبريد
+            </a>
+            <button onclick="window.print()" class="btn btn-outline-dark">
+                <i class="bi bi-printer me-1"></i> طباعة
+            </button>
+        </div>
+    </div>
+
+    <form method="get" class="card shadow-sm mb-4 no-print">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-5">
+                    <label class="form-label fw-bold">التاجر</label>
+                    <select name="trader" class="form-select">
+                        <option value="">— كل التجار —</option>
+                        {% for t in traders %}
+                        <option value="{{ t.id }}" {% if selected_trader and selected_trader.id == t.id %}selected{% endif %}>{{ t.name }} ({{ t.code }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-check mt-4">
+                        <input class="form-check-input" type="checkbox" name="in_cooling" value="1" id="inCoolingOnly" {% if only_in_cooling %}checked{% endif %}>
+                        <label class="form-check-label fw-bold" for="inCoolingOnly">إظهار الطبالي الموجودة في البراد فقط</label>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-royal w-100">
+                        <i class="bi bi-funnel me-1"></i> عرض الكشف
+                    </button>
+                </div>
+            </div>
+        </div>
+    </form>
+
+    <div class="row g-3 mb-4 text-center">
+        <div class="col-md-4">
+            <div class="bg-white p-3 rounded border shadow-sm">
+                <span class="text-muted small fw-bold">عدد الطبالي في الكشف</span>
+                <h5 class="fw-bold mb-0">{{ statement.rows|length }}</h5>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="bg-white p-3 rounded border shadow-sm">
+                <span class="text-muted small fw-bold">إجمالي أيام التبريد</span>
+                <h5 class="fw-bold mb-0 text-primary">{{ statement.total_days }} يوم</h5>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="bg-white p-3 rounded border shadow-sm">
+                <span class="text-muted small fw-bold">إجمالي أجرة التبريد</span>
+                <h5 class="fw-bold mb-0 text-success">{{ statement.total_fee }} دينار</h5>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>رمز الطبلية الموضبة</th>
+                        <th>التاجر</th>
+                        <th>البضاعة والمقاس</th>
+                        <th>عدد الصناديق</th>
+                        <th>الوزن الصافي</th>
+                        <th>الحالة والموقع</th>
+                        <th>أيام التبريد</th>
+                        <th>الأجرة اليومية</th>
+                        <th>أجرة التبريد</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in statement.rows %}
+                    <tr>
+                        <td class="fw-bold text-success">
+                            {{ row.pallet.packed_pallet_code }}
+                            <a href="{% url 'packed_pallet_cooling_history' row.pallet.pk %}" class="text-decoration-none ms-1 no-print" title="سجل الفترات">
+                                <i class="bi bi-clock-history"></i>
+                            </a>
+                        </td>
+                        <td class="fw-bold">{{ row.pallet.trader.name }}</td>
+                        <td>{{ row.pallet.crop.name }} <span class="badge bg-secondary ms-1">{{ row.pallet.size_name }}</span></td>
+                        <td>{{ row.pallet.box_count }}</td>
+                        <td>{{ row.pallet.net_weight_kg }} كغ</td>
+                        <td>
+                            {% if row.pallet.status == 'IN_COOLING' %}
+                            <span class="badge bg-info text-dark">في تبريد المشغل</span>
+                            <div class="small text-muted">{{ row.pallet.location_display }}</div>
+                            {% elif row.pallet.status == 'DELIVERED' %}
+                            <span class="badge bg-primary">مسلّمة</span>
+                            {% else %}
+                            <span class="badge bg-success">جاهزة (خارج البراد)</span>
+                            {% endif %}
+                        </td>
+                        <td class="fw-bold">{{ row.days }}</td>
+                        <td>{{ statement.rate }} دينار</td>
+                        <td class="fw-bold">{{ row.fee }} دينار</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="9" class="text-center py-5 text-muted">
+                            لا توجد طبالي موضبة دخلت التبريد بعد.
+                            ابدأ من صفحة <a href="{% url 'packed_pallet_cooling_in' %}">إدخال موضب للتبريد</a>.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                {% if statement.rows %}
+                <tfoot class="table-light">
+                    <tr>
+                        <th colspan="6" class="text-end">الإجمالي</th>
+                        <th>{{ statement.total_days }} يوم</th>
+                        <th></th>
+                        <th class="text-success">{{ statement.total_fee }} دينار</th>
+                    </tr>
+                </tfoot>
+                {% endif %}
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}تفريغ قاعدة البيانات | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-danger"><i class="bi bi-exclamation-octagon-fill me-2"></i> تفريغ قاعدة البيانات</h3>
+            <p class="text-muted small mb-0">إجراء لا رجعة فيه — من صلاحيات مالك النظام فقط.</p>
+        </div>
+        <a href="{% url 'home' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-right me-1"></i> العودة للرئيسية</a>
+    </div>
+
+    <div class="alert alert-danger shadow-sm">
+        <h6 class="fw-bold mb-2"><i class="bi bi-shield-exclamation me-1"></i> قبل أن تتابع — اقرأ جيداً</h6>
+        <ul class="mb-0 small">
+            <li>لا يمكن التراجع عن هذه العملية إطلاقاً. خُذ نسخة احتياطية أولاً إن كنت متردداً.</li>
+            <li>لن تُحذف حسابات المستخدمين ولا إعدادات النظام في أي من النموذجين.</li>
+            <li>يُسجَّل كل تفريغ في سجل التدقيق مع أعداد السجلات المحذوفة.</li>
+        </ul>
+    </div>
+
+    <!-- الوضع الحالي -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-light py-3">
+            <h6 class="mb-0 fw-bold"><i class="bi bi-bar-chart-line me-1"></i> المحتوى الحالي في قاعدة البيانات</h6>
+        </div>
+        <div class="card-body">
+            <div class="row g-2 text-center small">
+                <div class="col-6 col-md-3"><div class="p-2 border rounded"><div class="fw-bold fs-5">{{ traders_count }}</div>تاجر</div></div>
+                <div class="col-6 col-md-3"><div class="p-2 border rounded"><div class="fw-bold fs-5">{{ box_types_count }}</div>نوع صندوق</div></div>
+                <div class="col-6 col-md-3"><div class="p-2 border rounded"><div class="fw-bold fs-5">{{ cold_stores_count }}</div>براد</div></div>
+                <div class="col-6 col-md-3"><div class="p-2 border rounded"><div class="fw-bold fs-5">{{ treasury_count }}</div>حساب خزينة</div></div>
+                <div class="col-6 col-md-3"><div class="p-2 border rounded"><div class="fw-bold fs-5">{{ payments_count }}</div>سند قبض</div></div>
+                <div class="col-6 col-md-3"><div class="p-2 border rounded"><div class="fw-bold fs-5">{{ expenses_count }}</div>مصروف</div></div>
+                <div class="col-6 col-md-3"><div class="p-2 border rounded"><div class="fw-bold fs-5">{{ pallets_count }}</div>طبلية</div></div>
+                <div class="col-6 col-md-3"><div class="p-2 border rounded"><div class="fw-bold fs-5">{{ invoices_count }}</div>فاتورة</div></div>
+            </div>
+        </div>
+    </div>
+
+    <form method="post">
+        {% csrf_token %}
+        <!-- اختيار النموذج -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header card-header-royal py-3">
+                <h6 class="mb-0 fw-bold"><i class="bi bi-diagram-2 me-1"></i> اختر نموذج التفريغ</h6>
+            </div>
+            <div class="card-body">
+                <div class="form-check border rounded p-3 mb-2">
+                    <input class="form-check-input" type="radio" name="mode" id="modeOperations" value="OPERATIONS" checked>
+                    <label class="form-check-label" for="modeOperations">
+                        <span class="fw-bold text-success">تفريغ الحركات فقط (الأكثر أماناً)</span>
+                        <div class="text-muted small mt-1">
+                            يحذف كل المعاملات: السيارات، الطبالي، التوضيب، الفواتير، المالية، الصناديق، العمالة، الإشعارات.
+                            ويُبقي البيانات المرجعية: التجار، أنواع الصناديق، البرادات والأسياخ، الحسابات، مستخدمي النظام، الإعدادات.
+                            يتم تصفير أرصدة الصناديق وأرصدة الخزينة إلى الرصيد الافتتاحي.
+                        </div>
+                    </label>
+                </div>
+                <div class="form-check border rounded p-3">
+                    <input class="form-check-input" type="radio" name="mode" id="modeFull" value="FULL">
+                    <label class="form-check-label" for="modeFull">
+                        <span class="fw-bold text-danger">تفريغ كامل (بما فيها البيانات المرجعية)</span>
+                        <div class="text-muted small mt-1">
+                            يحذف كل شيء: التجار، البرادات، الأسياخ، أنواع الصناديق، أصناف البضاعة، الحسابات، تصنيفات المصاريف،
+                            وكل الحركات. يبقى فقط: مستخدمو النظام وإعدادات النظام.
+                        </div>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- التأكيد -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-header bg-danger text-white py-3">
+                <h6 class="mb-0 fw-bold"><i class="bi bi-key-fill me-1"></i> تأكيد نهائي</h6>
+            </div>
+            <div class="card-body">
+                <label class="form-label fw-bold">
+                    اكتب العبارة التالية حرفيًا لتنفيذ التفريغ:
+                    <code class="text-danger fs-6">{{ confirm_phrase }}</code>
+                </label>
+                <input type="text" name="confirm_text" class="form-control" autocomplete="off"
+                       placeholder="{{ confirm_phrase }}" required>
+                <div class="form-text">لن يُنفَّذ أي حذف إذا كانت العبارة غير مطابقة تماماً.</div>
+            </div>
+        </div>
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-danger fw-bold px-4"
+                    onclick="return confirm('هل أنت متأكد؟ لا يمكن التراجع عن هذا الإجراء.');">
+                <i class="bi bi-trash3-fill me-1"></i> تنفيذ التفريغ
+            </button>
+            <a href="{% url 'home' %}" class="btn btn-outline-secondary">إلغاء</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

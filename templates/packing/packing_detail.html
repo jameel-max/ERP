@@ -1,0 +1,562 @@
+{% extends "base.html" %}
+{% load attachments_tags %}
+{% load l10n %}
+
+{% block title %}عملية التوضيب: {{ session.session_code }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+
+    <!-- رأس الجلسة -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body p-4 bg-white">
+            <div class="d-flex flex-wrap justify-content-between align-items-center">
+                <div>
+                    <div class="d-flex align-items-center gap-2">
+                        <h2 class="fw-bold mb-0 text-dark">{{ session.session_code }}</h2>
+                        {% if session.status == 'COMPLETED' or session.status == 'APPROVED' %}
+                        <span class="badge bg-success fs-6"><i class="bi bi-check2-all me-1"></i> مكتملة وموضبة</span>
+                        {% elif session.status == 'PENDING_APPROVAL' %}
+                        <span class="badge bg-danger fs-6"><i class="bi bi-shield-exclamation me-1"></i> بانتظار اعتماد المدير (فرق وزن)</span>
+                        {% else %}
+                        <span class="badge bg-warning text-dark fs-6"><i class="bi bi-hourglass-split me-1"></i> قيد العمل والفرز</span>
+                        {% endif %}
+                    </div>
+                    <div class="text-muted small mt-1">
+                        التاجر: <a href="{% url 'trader_detail' session.trader.pk %}" class="fw-bold text-success text-decoration-none">{{ session.trader.name }}</a> &bull;
+                        البضاعة: <strong>{{ session.crop.name }}</strong> &bull;
+                        طريقة التوضيب: <strong>{{ session.get_packing_method_display }}</strong> &bull;
+                        الورشة: <strong>{{ session.workshop_name|default:"المشغل الرئيسي" }}</strong> &bull;
+                        تاريخ البدء: {{ session.started_at|date:"Y-m-d H:i" }}
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap gap-2 mt-3 mt-md-0">
+                    <a href="{% url 'packing_list' %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-right me-1"></i> قائمة العمليات
+                    </a>
+                    {% include "core/_delete_button.html" with app_label="packing" model_name="packingsession" object_id=session.pk btn_class="btn-outline-danger" title="حذف جلسة التوضيب بشكل منفرد" show_text=True %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- تنبيه طلب اعتماد المدير عند وجود فرق وزن -->
+    {% if session.status == 'PENDING_APPROVAL' %}
+    <div class="alert alert-danger border-0 shadow-sm mb-4">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="fw-bold mb-1"><i class="bi bi-exclamation-octagon-fill me-2"></i> عملية التوضيب تتطلب تدقيق واعتماد المدير العام</h5>
+                <p class="mb-0 small">
+                    الوزن الصافي الداخل: <strong>{{ session.input_weight_kg }} كغ</strong> |
+                    الوزن الموضب: <strong>{{ session.output_packed_kg }} كغ</strong> |
+                    الهالك: <strong>{{ session.waste_weight_kg }} كغ</strong> |
+                    <strong class="text-decoration-underline">فرق الوزن غير المفسر: {{ session.unexplained_diff_kg }} كغ</strong>.
+                </p>
+            </div>
+            {% if user.is_manager %}
+            <button class="btn btn-danger btn-sm px-3 fw-bold" data-bs-toggle="collapse" data-bs-target="#managerApproveCollapse">
+                <i class="bi bi-shield-check me-1"></i> اعتماد فرق الوزن
+            </button>
+            {% endif %}
+        </div>
+
+        {% if user.is_manager %}
+        <div class="collapse mt-3 pt-3 border-top border-danger-subtle" id="managerApproveCollapse">
+            <form method="post" action="{% url 'packing_manager_approve' session.pk %}">
+                {% csrf_token %}
+                <div class="mb-2">
+                    <label class="fw-bold small">ملاحظات وقرار المدير للاعتماد:</label>
+                    <input type="text" name="approval_notes" class="form-control form-control-sm" placeholder="مثال: تم تدقيق الرطوبة والتفريغ واعتماد الفارق مبرراً..." required>
+                </div>
+                <button type="submit" class="btn btn-dark btn-sm">تأكيد اعتماد العملية وإغلاق الرقابة</button>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- بطاقات المؤشرات (الداخل، الموضب، الهالك، الرندمان) -->
+    <div class="row g-3 mb-4 text-center">
+        <div class="col-sm-6 col-lg-3">
+            <div class="bg-white p-3 rounded border shadow-sm">
+                <span class="text-muted small fw-bold">الوزن الصافي الداخل للتوضيب</span>
+                <h3 class="fw-bold my-1 text-dark">{{ session.input_weight_kg }} <small class="fs-6 text-muted">كغ</small></h3>
+                <small class="text-muted">{{ session.source_pallets.count }} طبالي من البراد</small>
+            </div>
+        </div>
+        <div class="col-sm-6 col-lg-3">
+            <div class="bg-white p-3 rounded border shadow-sm border-success">
+                <span class="text-success small fw-bold">الوزن الموضب الفعلي (الإنتاج)</span>
+                <h3 class="fw-bold my-1 text-success">{{ session.output_packed_kg }} <small class="fs-6 text-muted">كغ</small></h3>
+                <small class="text-muted">{{ session.packed_pallets.count }} طبلية موضبة</small>
+            </div>
+        </div>
+        <div class="col-sm-6 col-lg-3">
+            <div class="bg-white p-3 rounded border shadow-sm border-danger">
+                <span class="text-danger small fw-bold">الهالك المسجل والمصنف</span>
+                <h3 class="fw-bold my-1 text-danger">{{ session.waste_weight_kg }} <small class="fs-6 text-muted">كغ</small></h3>
+                <small class="text-muted">مفرز وتالف ومصنف</small>
+            </div>
+        </div>
+        <div class="col-sm-6 col-lg-3">
+            <div class="bg-white p-3 rounded border shadow-sm border-primary">
+                <span class="text-primary small fw-bold">نسبة الرندمان % (الموضب ÷ الداخل)</span>
+                <h3 class="fw-bold my-1 text-primary">{{ session.randeman_pct }}%</h3>
+                <small class="text-muted">فرق غير مفسر: {{ session.unexplained_diff_kg }} كغ</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- نموذج إدخال نواتج المقاسات (إذا كانت قيد العمل) -->
+    {% if session.status == 'DRAFT' %}
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header card-header-royal py-3">
+            <h5 class="mb-0 fw-bold"><i class="bi bi-box-seam me-2"></i> إدخال نواتج التوضيب بالمقاسات والهالك</h5>
+        </div>
+        <div class="card-body p-4 bg-white">
+            <form method="post" action="{% url 'packing_finalize' session.pk %}" id="packingForm">
+                {% csrf_token %}
+
+                <h6 class="fw-bold text-success border-bottom pb-2 mb-3">1. نواتج المقاسات الموضبة:</h6>
+                <p class="text-muted small mb-2">
+                    <i class="bi bi-info-circle me-1"></i>
+                    كل سطر = <strong>طبلية واحدة</strong> بوزنها الخاص ونوع صندوقها، ويُولَّد لها <strong>رمز QR</strong> خاص بها عند الحفظ لطباعته وملصقه.
+                </p>
+                <div class="alert alert-light border py-2 mb-3 d-flex flex-wrap gap-3 align-items-center">
+                    <span class="badge bg-dark">طبالي الاستلام المتاحة: {{ session.source_pallets.count }}</span>
+                    <span class="badge bg-success" id="rowsCounter">أسطر النواتج: 1</span>
+                    <span class="badge bg-danger d-none" id="rowsWarning">
+                        <i class="bi bi-exclamation-triangle me-1"></i> عدد الأسطر أكبر من عدد الطبالي المتاحة
+                    </span>
+                    <span class="small text-muted">
+                        لا يمكن أن يتجاوز عدد أسطر النواتج (كل سطر = طبلية موضبة) عدد طبالي الاستلام المسحوبة من البراد في هذه الجلسة.
+                    </span>
+                </div>
+                <div id="outputsContainer">
+                    <div class="row g-2 align-items-end mb-2 output-row" data-output-row>
+                        <div class="col-md-3">
+                            <label class="small fw-bold">المقاس / التصنيف *</label>
+                            <input type="text" name="size_name[]" class="form-control" placeholder="مثال: P1 Small, XL..." value="P1 Standard" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="small fw-bold">نوع الصندوق المستخدم *</label>
+                            <select name="box_type[]" class="form-select" required>
+                                {% for b in box_types %}
+                                <option value="{{ b.id }}">{{ b.name }} ({{ b.color_or_type }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="small fw-bold">عدد الصناديق *</label>
+                            <input type="number" name="box_count[]" class="form-control box-count-input" min="1" value="80" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="small fw-bold">الوزن الصافي للطبلية (كغ) *</label>
+                            <input type="number" step="0.001" name="net_weight_kg[]" class="form-control net-weight-input" min="0.001" required>
+                        </div>
+                        <div class="col-md-1 text-center">
+                            <button type="button" class="btn btn-outline-danger btn-sm remove-output-row" title="حذف السطر">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+
+                        <!-- أصناف التغليف العادية المستخدمة في هذا الناتج (أكثر من صنف ومن مجموعات مختلفة) -->
+                        <div class="col-12">
+                            <div class="border rounded bg-light p-2 mt-1">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="small fw-bold text-secondary">
+                                        <i class="bi bi-box-seam me-1"></i> أصناف التغليف المستخدمة في هذا المقاس (اختياري)
+                                    </span>
+                                    <button type="button" class="btn btn-outline-success btn-sm add-pkg-row">
+                                        <i class="bi bi-plus-lg me-1"></i> إضافة صنف تغليف
+                                    </button>
+                                </div>
+                                <div class="pkg-items-container" data-pkg-container></div>
+                                <small class="text-muted d-block mt-1">
+                                    يمكن إضافة أكثر من صنف، وكل صنف من مجموعة تغليف مختلفة (صندوق، ورق، ستيكر، شبك حماية...).
+                                    تُخصم قيمة كل صنف من التاجر بسعره المعتمد في «موارد التغليف».
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="button" class="btn btn-outline-success btn-sm mt-2 mb-4" id="addOutputRow">
+                    <i class="bi bi-plus-circle me-1"></i> إضافة مقاس ناتج آخر
+                </button>
+
+                <!-- قالب صنف تغليف واحد يُستنسخ بواسطة JS داخل كل سطر ناتج -->
+                <template id="pkgItemTemplate">
+                    <div class="row g-2 align-items-center mb-1 pkg-item-row" data-pkg-row>
+                        <div class="col-md-5">
+                            <select name="pkg_item[]" class="form-select form-select-sm pkg-item-select">
+                                <option value="">— اختر صنف التغليف —</option>
+                                {% for g in packaging_groups %}
+                                <optgroup label="{{ g.name }}">
+                                    {% for it in g.items.all %}
+                                    <option value="{{ it.id }}" data-price="{{ it.discount_price }}" data-group="{{ g.name }}" {% if not it.is_active %}disabled{% endif %}>
+                                        {{ it.name }}{% if it.size %} — {{ it.size }}{% endif %} ({{ it.discount_price }} د.أ)
+                                    </option>
+                                    {% endfor %}
+                                </optgroup>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <input type="number" step="0.001" name="pkg_qty[]" class="form-control form-control-sm pkg-qty" value="1.000" min="0">
+                        </div>
+                        <div class="col-md-3">
+                            <span class="badge bg-light text-dark border pkg-line-total">0.000 د.أ</span>
+                        </div>
+                        <div class="col-md-1 text-center">
+                            <button type="button" class="btn btn-outline-danger btn-sm remove-pkg-row" title="حذف صنف التغليف">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                    </div>
+                </template>
+
+                <h6 class="fw-bold text-danger border-bottom pb-2 mb-3">2. الهالك والفرز المستبعد:</h6>
+                <div id="wasteContainer">
+                    <div class="row g-2 align-items-end mb-2 waste-row">
+                        <div class="col-md-6">
+                            <label class="small fw-bold">تصنيف الهالك</label>
+                            <input type="text" name="waste_type[]" class="form-control" placeholder="مثال: ضربات / تلف / صغير غير مطابق" value="تالف وفرز استبعاد">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="small fw-bold">وزن الهالك (كغ)</label>
+                            <input type="number" step="0.001" name="waste_weight[]" class="form-control waste-weight-input" value="0.000">
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="my-4">
+                <div class="alert alert-light border d-flex justify-content-between align-items-center">
+                    <span class="fw-bold"><i class="bi bi-cash-coin me-1 text-success"></i> إجمالي خصم أصناف التغليف على التاجر:</span>
+                    <span class="fs-5 fw-bold text-success"><span id="pkgGrandTotal">0.000</span> د.أ</span>
+                </div>
+                <button type="submit" class="btn btn-royal px-5 py-2 fs-5">
+                    <i class="bi bi-check2-circle me-1"></i> اعتماد نواتج التوضيب واحتساب الرندمان وتوليد الطبالي
+                </button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- جدول الطبالي الموضبة الناتجة ورموز الـ QR -->
+    {% if session.packed_pallets.exists %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+            <h5 class="fw-bold mb-0 text-dark">
+                <i class="bi bi-boxes text-success me-2"></i> الطبالي الموضبة الناتجة عن هذه الجلسة ({{ session.packed_pallets.count }} طبلية)
+            </h5>
+            <a href="{% url 'delivery_note_create' %}" class="btn btn-outline-royal btn-sm">
+                <i class="bi bi-truck me-1"></i> إنشاء بيان تسليم للتاجر
+            </a>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>رمز الطبلية الموضبة</th>
+                        <th>الطبلية الأصلية المستلمة</th>
+                        <th>المقاس</th>
+                        <th>نوع الصندوق</th>
+                        <th>عدد الصناديق</th>
+                        <th>الوزن الصافي</th>
+                        <th>الحالة</th>
+                        <th>كود الـ QR الموضب</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in packed_pallets_with_qr %}
+                    {% with p=item.pallet %}
+                    <tr>
+                        <td class="fw-bold text-success fs-6">{{ p.packed_pallet_code }}</td>
+                        <td><code>{{ p.original_pallet.pallet_code }}</code></td>
+                        <td><span class="badge bg-secondary">{{ p.size_name }}</span></td>
+                        <td>{{ p.box_type.name }}</td>
+                        <td>{{ p.box_count }}</td>
+                        <td class="fw-bold">{{ p.net_weight_kg }} كغ</td>
+                        <td>
+                            {% if p.status == 'DELIVERED' %}
+                            <span class="badge bg-primary">مسلّمة</span>
+                            {% elif p.status == 'IN_COOLING' %}
+                            <span class="badge bg-info text-dark">في تبريد المشغل</span>
+                            {% else %}
+                            <span class="badge bg-success">موضبة وجاهزة</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <img src="{{ item.qr_b64 }}" alt="QR" style="width: 45px; height: 45px;" class="border p-1 rounded">
+                        </td>
+                        <td>
+                            <a href="{% url 'packed_pallet_print_label' p.pk %}" target="_blank" class="btn btn-outline-dark btn-sm">
+                                <i class="bi bi-printer me-1"></i> طباعة الملصق
+                            </a>
+                            {% include "core/_delete_button.html" with app_label="packing" model_name="packedpallet" object_id=p.pk title="حذف الطبلية الموضبة بشكل منفرد" %}
+                        </td>
+                    </tr>
+                    {% endwith %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- أصناف التغليف العادية المستخدمة في التوضيب وخصمها على التاجر -->
+    {% if session.packaging_charge or session.outputs.exists %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+            <h5 class="fw-bold mb-0 text-dark">
+                <i class="bi bi-box-seam text-success me-2"></i> أصناف التغليف المستخدمة في التوضيب
+            </h5>
+            {% if packaging_charge_total and packaging_charge_total > 0 %}
+            <span class="badge bg-success fs-6">
+                إجمالي الخصم على التاجر: {{ packaging_charge_total }} د.أ
+            </span>
+            {% endif %}
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>المقاس / الناتج</th>
+                        <th>صنف التغليف</th>
+                        <th>مجموعة التغليف</th>
+                        <th>الكمية</th>
+                        <th>سعر الوحدة</th>
+                        <th>الإجمالي</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for out in session.outputs.all %}
+                        {% for pkg in out.packaging_items.all %}
+                        <tr>
+                            <td><span class="badge bg-secondary">{{ out.size_name }}</span></td>
+                            <td class="fw-bold">{{ pkg.packaging_item.name }}</td>
+                            <td>{{ pkg.packaging_group_name|default:"—" }}</td>
+                            <td>{{ pkg.quantity }}</td>
+                            <td>{{ pkg.unit_price_snapshot }} د.أ</td>
+                            <td class="fw-bold text-success">{{ pkg.total_price }} د.أ</td>
+                        </tr>
+                        {% empty %}
+                        {% if forloop.first %}
+                        <tr>
+                            <td><span class="badge bg-secondary">{{ out.size_name }}</span></td>
+                            <td colspan="5" class="text-muted small">
+                                لم تُسجَّل أصناف تغليف إضافية لهذا الناتج.
+                            </td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox fs-4 d-block mb-1 text-secondary"></i>
+                            لم تُسجَّل نواتج توضيب بعد؛ ستظهر أصناف التغليف هنا بعد اعتماد النواتج.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                {% if packaging_charge_total and packaging_charge_total > 0 %}
+                <tfoot class="table-light">
+                    <tr>
+                        <th colspan="5" class="text-end">إجمالي خصم أصناف التغليف على التاجر</th>
+                        <th class="text-success">{{ packaging_charge_total }} د.أ</th>
+                    </tr>
+                </tfoot>
+                {% endif %}
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- الطبالي الأصلية المسحوبة من البراد -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom py-3">
+            <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-snow2 text-primary me-2"></i> الطبالي الأصلية المسحوبة من البراد لهذا التوضيب</h5>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0 small">
+                <thead class="table-light">
+                    <tr>
+                        <th>رقم الطبلية</th>
+                        <th>السيارة (Lot)</th>
+                        <th>البراد والسيخ المسحوب منه</th>
+                        <th>الصناديق الأصلية</th>
+                        <th>الوزن الصافي التقديري</th>
+                        <th>أيام البقاء بالبراد</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in session.source_pallets.all %}
+                    <tr>
+                        <td class="fw-bold">{{ p.pallet_code }}</td>
+                        <td>{{ p.truck_receipt.lot_number }}</td>
+                        <td>{{ p.cold_store.name }} {% if p.shelf %}– السيخ {{ p.shelf.shelf_number }}{% endif %}</td>
+                        <td>{{ p.box_count }}</td>
+                        <td class="fw-bold">{{ p.estimated_net_weight }} كغ</td>
+                        <td>{{ p.days_in_cooling }} يوم</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {% attachments session %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const addBtn = document.getElementById('addOutputRow');
+    const container = document.getElementById('outputsContainer');
+    const form = document.getElementById('packingForm');
+    const counter = document.getElementById('rowsCounter');
+    const warning = document.getElementById('rowsWarning');
+    const pkgTemplate = document.getElementById('pkgItemTemplate');
+    const pkgGrandTotal = document.getElementById('pkgGrandTotal');
+    // كل سطر إدخال = طبلية موضبة واحدة، فلا يجوز تجاوز عدد طبالي الاستلام المتاحة
+    const maxRows = {{ session.source_pallets.count|unlocalize }};
+
+    function usedRows() {
+        if (!container) return 0;
+        return Array.from(container.querySelectorAll('.output-row')).filter(function(row) {
+            const sizeInput = row.querySelector('input[name="size_name[]"]');
+            return sizeInput && sizeInput.value.trim() !== '';
+        }).length;
+    }
+
+    // إعادة ترقيم أسطر النواتج وضبط pkg_output_idx[] لأصناف التغليف حسب ترتيب السطر الحالي
+    function reindexPkgRows() {
+        if (!container) return;
+        const rows = Array.from(container.querySelectorAll('.output-row'));
+        rows.forEach(function(row, idx) {
+            row.querySelectorAll('[data-pkg-row]').forEach(function(pkgRow) {
+                let hidden = pkgRow.querySelector('input[name="pkg_output_idx[]"]');
+                if (!hidden) {
+                    hidden = document.createElement('input');
+                    hidden.type = 'hidden';
+                    hidden.name = 'pkg_output_idx[]';
+                    pkgRow.appendChild(hidden);
+                }
+                hidden.value = idx;
+            });
+        });
+    }
+
+    function pkgRowTotal(pkgRow) {
+        const sel = pkgRow.querySelector('.pkg-item-select');
+        const qty = pkgRow.querySelector('.pkg-qty');
+        if (!sel || !qty) return 0;
+        const opt = sel.options[sel.selectedIndex];
+        const price = opt && opt.dataset ? parseFloat(opt.dataset.price || '0') : 0;
+        const q = parseFloat(qty.value || '0');
+        return (isNaN(price) ? 0 : price) * (isNaN(q) ? 0 : q);
+    }
+
+    function refreshPkgTotals() {
+        if (!container) return;
+        let grand = 0;
+        container.querySelectorAll('[data-pkg-row]').forEach(function(pkgRow) {
+            const t = pkgRowTotal(pkgRow);
+            grand += t;
+            const badge = pkgRow.querySelector('.pkg-line-total');
+            if (badge) badge.textContent = t.toFixed(3) + ' د.أ';
+        });
+        if (pkgGrandTotal) pkgGrandTotal.textContent = grand.toFixed(3);
+    }
+
+    function addPkgRowTo(outputRow) {
+        if (!pkgTemplate) return;
+        const containerEl = outputRow.querySelector('[data-pkg-container]');
+        if (!containerEl) return;
+        const clone = pkgTemplate.content.cloneNode(true);
+        containerEl.appendChild(clone);
+        reindexPkgRows();
+        refreshPkgTotals();
+    }
+
+    function refreshCounter() {
+        const used = usedRows();
+        if (counter) {
+            counter.textContent = 'أسطر النواتج: ' + used;
+            counter.classList.toggle('bg-danger', used > maxRows);
+            counter.classList.toggle('bg-success', used <= maxRows);
+        }
+        if (warning) {
+            warning.classList.toggle('d-none', used <= maxRows);
+        }
+        if (addBtn) {
+            addBtn.disabled = used >= maxRows;
+            addBtn.title = used >= maxRows ? 'لا يمكن إضافة سطر أكثر من عدد الطبالي المتاحة' : '';
+        }
+        if (container) {
+            const rowCount = container.querySelectorAll('.output-row').length;
+            container.querySelectorAll('.remove-output-row').forEach(function(btn) {
+                btn.disabled = rowCount <= 1;
+            });
+        }
+        reindexPkgRows();
+        refreshPkgTotals();
+    }
+
+    if (addBtn && container) {
+        addBtn.addEventListener('click', function() {
+            if (usedRows() >= maxRows) {
+                return;
+            }
+            const firstRow = container.querySelector('.output-row');
+            const clone = firstRow.cloneNode(true);
+            // تفريغ الحقول الأساسية وعدم نسخ أصناف التغليف المختارة، مع إبقاء صفٍّ واحد فارغ
+            clone.querySelectorAll('input[name="size_name[]"], input[name="net_weight_kg[]"]').forEach(function(i) { i.value = ''; });
+            clone.querySelectorAll('[data-pkg-container]').forEach(function(c) { c.innerHTML = ''; });
+            container.appendChild(clone);
+            refreshCounter();
+        });
+    }
+
+    if (container) {
+        container.addEventListener('click', function(event) {
+            const removeBtn = event.target.closest('.remove-output-row');
+            if (removeBtn) {
+                if (container.querySelectorAll('.output-row').length <= 1) return;
+                removeBtn.closest('.output-row').remove();
+                refreshCounter();
+                return;
+            }
+            const addPkgBtn = event.target.closest('.add-pkg-row');
+            if (addPkgBtn) {
+                addPkgRowTo(addPkgBtn.closest('.output-row'));
+                return;
+            }
+            const removePkgBtn = event.target.closest('.remove-pkg-row');
+            if (removePkgBtn) {
+                removePkgBtn.closest('[data-pkg-row]').remove();
+                refreshPkgTotals();
+                return;
+            }
+        });
+        container.addEventListener('input', function() { refreshCounter(); });
+        container.addEventListener('change', function() { refreshPkgTotals(); });
+    }
+
+    if (form) {
+        form.addEventListener('submit', function(event) {
+            const used = usedRows();
+            if (maxRows > 0 && used > maxRows) {
+                event.preventDefault();
+                alert('عدد أسطر النواتج (' + used + ') أكبر من عدد الطبالي المتاحة (' + maxRows + ').');
+            }
+        });
+    }
+
+    refreshCounter();
+});
+</script>
+{% endblock %}

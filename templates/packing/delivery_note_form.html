@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}إنشاء بيان تسليم | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="card shadow-sm border-0">
+        <div class="card-header card-header-royal py-3">
+            <h5 class="mb-0 fw-bold"><i class="bi bi-truck me-2"></i> إنشاء بيان تسليم خروج بضاعة موضبة</h5>
+        </div>
+        <div class="card-body p-4 bg-white">
+            <form method="post">
+                {% csrf_token %}
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">التاجر المستلم *</label>
+                        {{ form.trader }}
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">تاريخ التسليم *</label>
+                        {{ form.delivery_date }}
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">اسم السائق الناقل</label>
+                        {{ form.driver_name }}
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">رقم سيارة الشحن</label>
+                        {{ form.truck_plate }}
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">اسم المستلم المعتمد</label>
+                        {{ form.receiver_name }}
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold">ملاحظات التسليم والخروج</label>
+                        {{ form.notes }}
+                    </div>
+                </div>
+
+                <h6 class="fw-bold text-success border-bottom pb-2 mb-3">
+                    <i class="bi bi-boxes me-1"></i> اختر الطبالي الموضبة الجاهزة للتسليم:
+                </h6>
+                <div class="table-responsive border rounded mb-4" style="max-height: 320px; overflow-y: auto;">
+                    <table class="table table-hover align-middle mb-0 small">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th style="width: 40px;">اختر</th>
+                                <th>رمز الطبلية الموضبة</th>
+                                <th>التاجر</th>
+                                <th>البضاعة</th>
+                                <th>المقاس</th>
+                                <th>نوع الصندوق</th>
+                                <th>عدد الصناديق</th>
+                                <th>الوزن الصافي</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p in available_pallets %}
+                            <tr>
+                                <td>
+                                    <input type="checkbox" name="selected_pallets" value="{{ p.id }}" class="form-check-input">
+                                </td>
+                                <td class="fw-bold text-success">{{ p.packed_pallet_code }}</td>
+                                <td>{{ p.trader.name }}</td>
+                                <td>{{ p.crop.name }}</td>
+                                <td><span class="badge bg-secondary">{{ p.size_name }}</span></td>
+                                <td>{{ p.box_type.name }}</td>
+                                <td>{{ p.box_count }}</td>
+                                <td class="fw-bold">{{ p.net_weight_kg }} كغ</td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="8" class="text-center py-4 text-muted">
+                                    لا توجد طبالي موضبة جاهزة للتسليم حالياً.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <hr class="my-4">
+                <div class="d-flex justify-content-between">
+                    <a href="{% url 'delivery_notes_list' %}" class="btn btn-outline-secondary">إلغاء</a>
+                    <button type="submit" class="btn btn-royal px-5">
+                        <i class="bi bi-check-circle me-1"></i> اعتماد بيان التسليم وإخراج الطبالي
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

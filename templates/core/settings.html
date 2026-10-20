@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+
+{% block title %}إعدادات النظام | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-sliders me-2"></i> إعدادات النظام المعتمدة</h3>
+            <p class="text-muted small mb-0">قابلة للتغيير بصلاحية المدير العام فقط وفقاً للبند السابع من المواصفات</p>
+        </div>
+        <a href="{% url 'home' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-right me-1"></i> العودة للرئيسية</a>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header card-header-royal py-3">
+            <h5 class="mb-0 fw-bold"><i class="bi bi-gear-wide-connected me-2"></i> الإعدادات التشغيلية والمالية المركزية</h5>
+        </div>
+        <div class="card-body p-4 bg-white">
+            <form method="post">
+                {% csrf_token %}
+                <div class="row g-3">
+                    <div class="col-12">
+                        <h6 class="fw-bold text-success mb-1">
+                            <i class="bi bi-building me-1"></i> هوية الشركة والعملة
+                        </h6>
+                        <p class="text-muted small mb-2">تظهر في رأس النظام وفي الفواتير والتقارير.</p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">اسم الشركة (إنجليزي)</label>
+                        {{ form.company_name_en }}
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">اسم الشركة (عربي)</label>
+                        {{ form.company_name_ar }}
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">لون الهوية الرئيسي</label>
+                        {{ form.brand_color }}
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">رمز العملة</label>
+                        {{ form.currency_symbol }}
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">سياسة التقريب</label>
+                        {{ form.rounding_policy }}
+                        <small class="text-muted">ROUND_HALF_UP</small>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">خانات العملة العشرية</label>
+                        {{ form.currency_decimals }}
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">خانات الوزن العشرية</label>
+                        {{ form.weight_decimals }}
+                    </div>
+
+                    <div class="col-12"><hr class="my-3"></div>
+                    <div class="col-12">
+                        <h6 class="fw-bold text-success mb-1">
+                            <i class="bi bi-cash-coin me-1"></i> الأسعار والتكاليف التشغيلية
+                        </h6>
+                        <p class="text-muted small mb-2">
+                            كل سعر أو مصروف يفترضه النظام في أي شاشة (الفواتير، التوضيب، التبريد، العمالة،
+                            التبادل التجاري) يُؤخذ من هذه القيم — لا يوجد أي سعر مكتوب داخل الشيفرة.
+                        </p>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">سعر الكيلو الموضب الافتراضي — مكينة (دينار/كغ)</label>
+                        {{ form.default_packing_rate_per_kg }}
+                        <small class="text-muted">
+                            يُستخدم عند إنشاء فاتورة توضيب «مكينة» لتاجر بلا سعر توضيب ساري. 0.070 مثال وليس مفروضاً.
+                        </small>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">سعر الكيلو الموضب الافتراضي — يدوي (دينار/كغ)</label>
+                        {{ form.default_manual_packing_rate_per_kg }}
+                        <small class="text-muted">
+                            يُستخدم عند إنشاء فاتورة توضيب «يدوي» لتاجر بلا سعر توضيب ساري. 0.070 مثال وليس مفروضاً.
+                        </small>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">أجرة تبريد الطبلية الموضبة اليومية (دينار)</label>
+                        {{ form.packed_cooling_daily_rate }}
+                        <small class="text-muted">تُحتسب عن كل طبلية موضبة عن كل يوم بقاء في البراد. 0 = غير محتسبة حتى تحدّد السعر</small>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">سعر الصرف الافتراضي مقابل الدينار</label>
+                        {{ form.default_exchange_rate }}
+                        <small class="text-muted">القيمة المبدئية في نموذج الشحنات التجارية. لكل شحنة تعديل مستقل</small>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">سعر ساعة العامل الافتراضي (دينار)</label>
+                        {{ form.worker_hourly_rate }}
+                        <small class="text-muted">يُستخدم كسعر بديل إذا كانت الورشة بلا سعر ساعة محدد</small>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">بدل المواصلات اليومي للعامل (دينار)</label>
+                        {{ form.worker_transport_daily }}
+                        <small class="text-muted">يُستخدم كبديل إذا كانت الورشة بلا بدل مواصلات محدد</small>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">ساعات العمل الافتراضية اليومية (ساعة)</label>
+                        {{ form.default_work_hours }}
+                        <small class="text-muted">القيمة المعبّأة في نموذج تسجيل يوم عمل الورشة</small>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">وزن الصندوق الفارغ الافتراضي (كغ)</label>
+                        {{ form.empty_crate_weight }}
+                        <small class="text-muted">يُستخدم عند وزن الصندوق عند حساب صافي وزن السيارة</small>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">وزن الطبلية الفارغة (كغ)</label>
+                        {{ form.empty_pallet_weight }}
+                        <small class="text-muted">يُخصم من الوزن القائم لكل طبلية في سيارات «على طبالي»</small>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">حد سماح فرق الوزن %</label>
+                        {{ form.weight_tolerance_pct }}
+                        <small class="text-muted">فارغ = غير محدد ويتطلب اعتماد المدير قبل اعتماد أي توضيب</small>
+                    </div>
+
+                    <div class="col-12"><hr class="my-3"></div>
+                    <div class="col-12">
+                        <h6 class="fw-bold text-success mb-1">
+                            <i class="bi bi-ui-checks-grid me-1"></i> سلوك النظام
+                        </h6>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">مدة تنبيه الأقدم أولاً FIFO (أيام)</label>
+                        {{ form.fifo_alert_days }}
+                        <small class="text-muted">فارغ = غير مفعل. يتم إدخال عدد الأيام لتفعيل تنبيه الأقدم أولاً</small>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">عنوان السيرفر لروابط مسح QR</label>
+                        <div class="input-group">
+                            {{ form.scan_base_url }}
+                            <span class="input-group-text">/packing/pallets/qr/...</span>
+                        </div>
+                        <small class="text-muted">
+                            يُشفَّر داخل رمز QR المطبوع على الملصق، فيفتح صفحة الطبلية عند المسح من أي هاتف على الشبكة.
+                            اتركه فارغاً لاستخدام عنوان الصفحة الحالي. مثال: <strong dir="ltr">http://192.168.1.50:8000</strong>
+                        </small>
+                    </div>
+
+                    <div class="col-12"><hr class="my-2"></div>
+                    <div class="col-12">
+                        <h6 class="fw-bold text-success"><i class="bi bi-list-check me-1"></i> قوائم الحقول الحرجة وغير الحرجة (البند خامساً)</h6>
+                        <p class="text-muted small mb-2">اكتب مفاتيح الحقول بالإنجليزية مفصولة بفواصل، ويمكن نقل أي حقل بين القائمتين لترقيته أو تخفيضه. الحقول المعروفة — <strong>trader</strong>, <strong>crop</strong>, <strong>box_type</strong>, <strong>box_count</strong>, <strong>gross_weight</strong>, <strong>tare_weight</strong>, <strong>pallet_count</strong>, <strong>cold_store</strong>, <strong>driver_name</strong>, <strong>truck_plate</strong>, <strong>shelf</strong>, <strong>temperature</strong>, <strong>notes</strong>, <strong>scale_ticket_image</strong>, <strong>farm_name</strong>, <strong>export_certificate_no</strong></p>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">الحقول الحرجة (تمنع حفظ السيارة)</label>
+                        {{ form.critical_fields }}
+                        <small class="text-muted">أي حقل في هذه القائمة ناقصاً يمنع الحفظ</small>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">الحقول غير الحرجة (تُنشئ إشعاراً ولا تمنع الحفظ)</label>
+                        {{ form.non_critical_fields }}
+                        <small class="text-muted">أي حقل في هذه القائمة ناقصاً يُنشئ إشعاراً برابط تعديل مباشر</small>
+                    </div>
+                </div>
+
+                <hr class="my-4">
+                <button type="submit" class="btn btn-royal px-4 py-2 fw-bold">
+                    <i class="bi bi-check-circle me-1"></i> حفظ الإعدادات المركزية
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,573 @@
+{% extends "base.html" %}
+{% load l10n %}
+
+{% block title %}خريطة البرادات والأسياخ | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5"
+     id="coldMap"
+     data-pallet-move-template="{% url 'pallet_move' 0 %}"
+     data-packed-move-template="{% url 'packed_pallet_move' 0 %}"
+     data-csrf="{{ csrf_token }}"
+     data-can-move="{% if can_move %}1{% else %}0{% endif %}">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-snow2 me-2"></i> خريطة البرادات والأسياخ: من فيه أي بضاعة وأين</h3>
+            <p class="text-muted small mb-0">عرض بصري للبرادات والأسياخ، وبضاعة كل تاجر بلون مميز مع إشغال السعة</p>
+            {% if can_move %}
+            <p class="small fw-bold text-success mb-0 mt-1">
+                <i class="bi bi-arrows-move me-1"></i> اسحب بطاقة أي طبلية وأفلتها داخل السيخ المستهدف لنقلها فوراً (والطبالي الموضبة تُنقل بنفس الطريقة).
+            </p>
+            {% else %}
+            <p class="small text-muted mb-0 mt-1">
+                <i class="bi bi-lock me-1"></i> نقل الطبالي بالسحب متاح لحسابات المالك/المدير/المحاسب فقط.
+            </p>
+            {% endif %}
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <a href="{% url 'cold_store_create' %}" class="btn btn-royal">
+                <i class="bi bi-plus-circle me-1"></i> إضافة براد جديد
+            </a>
+            <a href="{% url 'cold_store_temperature_log' %}" class="btn btn-outline-primary">
+                <i class="bi bi-thermometer-half me-1"></i> سجل درجات الحرارة
+            </a>
+            <a href="{% url 'truck_create' %}" class="btn btn-outline-success">
+                <i class="bi bi-truck me-1"></i> استلام بضاعة جديدة
+            </a>
+        </div>
+    </div>
+
+    <!-- آخر قياسات درجات الحرارة -->
+    {% if recent_temp_logs %}
+    <div class="card mb-4 shadow-sm">
+        <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+            <h6 class="fw-bold mb-0"><i class="bi bi-thermometer-half me-1 text-info"></i> آخر قراءات درجات الحرارة (إدخال / إخراج / دوري)</h6>
+            <a href="{% url 'cold_store_temperature_log' %}" class="btn btn-sm btn-outline-royal">عرض السجل الكامل</a>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                    <thead class="bg-light">
+                        <tr><th>البراد</th><th>الحرارة</th><th>النوع</th><th>الطبلية</th><th>المستخدم</th><th>الوقت</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for log in recent_temp_logs %}
+                        <tr>
+                            <td>{{ log.cold_store.name }}</td>
+                            <td class="fw-bold">{{ log.temperature }}°C</td>
+                            <td>
+                                <span class="badge {% if log.log_type == 'ENTRY' %}bg-success{% elif log.log_type == 'EXIT' %}bg-warning text-dark{% else %}bg-info text-dark{% endif %}">
+                                    {{ log.get_log_type_display }}
+                                </span>
+                            </td>
+                            <td>{% if log.pallet %}{{ log.pallet.pallet_code }}{% else %}—{% endif %}</td>
+                            <td>{{ log.recorded_by.get_full_name|default:log.recorded_by.username|default:"—" }}</td>
+                            <td class="text-muted small">{{ log.recorded_at|date:"Y-m-d H:i" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if trader_legend %}
+    <!-- مفتاح الألوان: بضاعة كل تاجر بلون مميز (البند 5) -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-body py-3 d-flex flex-wrap align-items-center gap-3">
+            <span class="fw-bold text-dark small"><i class="bi bi-palette me-1 text-success"></i> مفتاح ألوان التجار (كل تاجر بلون مميز):</span>
+            {% for t in trader_legend %}
+            <span class="d-inline-flex align-items-center small">
+                <span class="d-inline-block rounded-circle me-1" style="width: 14px; height: 14px; background-color: {{ t.color }};"></span>
+                {{ t.name }} <span class="text-muted ms-1">({{ t.code }})</span>
+            </span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- الرسم البصري: بطاقات البرادات والأسياخ -->
+    <div class="row g-4">
+        {% if not shelves_data %}
+        <div class="col-12">
+            <div class="card shadow-sm border-0">
+                <div class="card-body text-center py-5 text-muted">
+                    <i class="bi bi-snow2 fs-1 d-block mb-3 text-secondary"></i>
+                    <h5 class="fw-bold text-dark">لا توجد برادات بعد</h5>
+                    <p class="mb-3">أضِف براداً لإنشاء أسياخه تلقائياً (المعتمد: 4 أسياخ لكل براد).</p>
+                    <a href="{% url 'cold_store_create' %}" class="btn btn-royal">
+                        <i class="bi bi-plus-circle me-1"></i> إضافة براد جديد
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        {% for store_info in shelves_data %}
+        {% with store=store_info.store %}
+        <div class="col-lg-6">
+            <div class="card shadow border-0 h-100">
+                <div class="card-header card-header-royal py-3 d-flex justify-content-between align-items-center">
+                    <div>
+                        <h4 class="fw-bold mb-0 text-white">
+                            <i class="bi bi-building me-2"></i> {{ store.name }}
+                            <span class="badge bg-secondary ms-2">{{ store.code }}</span>
+                        </h4>
+                        <small class="text-light opacity-75">
+                            الحرارة الحالية: <strong>{% if store.current_temperature is not None %}{{ store.current_temperature }}°C{% else %}غير محددة{% endif %}</strong>
+                        </small>
+                    </div>
+                    <div class="text-end">
+                        <span class="badge bg-white text-dark fs-6">
+                            الإشغال: {{ store_info.occupied }} {% if store.capacity_pallets %}/ {{ store.capacity_pallets }}{% endif %} طبلية
+                        </span>
+                        {% if store_info.packed_occupied %}
+                        <span class="badge bg-info text-dark fs-6 ms-1">
+                            <i class="bi bi-box2-heart me-1"></i> موضب مبرّد: {{ store_info.packed_occupied }} طبلية
+                        </span>
+                        {% endif %}
+                        <div class="mt-2">
+                            <a href="{% url 'shelf_create' store.pk %}" class="btn btn-sm btn-light fw-bold">
+                                <i class="bi bi-plus-circle me-1"></i> إضافة سيخ
+                            </a>
+                            {% include "core/_delete_button.html" with app_label="operations" model_name="coldstore" object_id=store.pk title="حذف البراد بشكل منفرد" %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-body p-4 bg-light">
+                    <!-- نسبة الإشغال -->
+                    <div class="mb-4">
+                        <div class="d-flex justify-content-between small text-muted mb-1">
+                            <span>نسبة الإشغال الكلية:</span>
+                            <strong>{% if store_info.occupancy_rate %}{{ store_info.occupancy_rate }}%{% else %}غير محددة في الإعدادات{% endif %}</strong>
+                        </div>
+                        <div class="progress" style="height: 14px;">
+                            <div class="progress-bar {% if store_info.occupancy_rate and store_info.occupancy_rate > 90 %}bg-danger{% elif store_info.occupancy_rate and store_info.occupancy_rate > 75 %}bg-warning{% else %}bg-success{% endif %}"
+                                 role="progressbar"
+                                 style="width: {{ store_info.occupancy_rate|default:0|unlocalize }}%;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- الأسياخ داخل هذا البراد -->
+                    <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">
+                        <i class="bi bi-grid-3x2-gap-fill text-success me-1"></i> الأسياخ والرفوف داخل {{ store.name }}:
+                    </h6>
+
+                    <div class="row g-3">
+                        {% for shelf_data in store_info.shelves %}
+                        {% with shelf=shelf_data.shelf %}
+                        <div class="col-12">
+                            <div class="card border shadow-sm shelf-dropzone{% if shelf_data.free == 0 %} shelf-full{% endif %}"
+                                 data-shelf-drop
+                                 data-shelf-id="{{ shelf.pk }}"
+                                 data-store-id="{{ store.pk }}"
+                                 data-shelf-number="{{ shelf.shelf_number }}"
+                                 data-shelf-free="{{ shelf_data.free|default_if_none:'' }}">
+                                <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
+                                    <div class="fw-bold text-dark fs-5">
+                                        <i class="bi bi-layers me-1 text-primary"></i> السيخ {{ shelf.shelf_number }}
+                                    </div>
+                                    <div>
+                                        <span class="badge bg-primary me-1">{{ shelf_data.pallet_count }}{% if shelf_data.capacity %} / {{ shelf_data.capacity }}{% endif %} طبلية</span>
+                                        {% if shelf_data.free is not None %}
+                                        <span class="badge bg-light text-dark border me-1">متاح {{ shelf_data.free }}</span>
+                                        {% endif %}
+                                        <span class="badge bg-secondary">{{ shelf_data.total_boxes }} صندوق</span>
+                                        {% include "core/_delete_button.html" with app_label="operations" model_name="shelf" object_id=shelf.pk title="حذف السيخ بشكل منفرد" %}
+                                    </div>
+                                </div>
+                                <div class="card-body p-3 bg-white">
+                                    {% if shelf_data.pallets %}
+                                    <div class="d-flex flex-wrap gap-2">
+                                        {% for p in shelf_data.pallets %}
+                                        <!-- كارت الطبلية بلون التاجر المميز -->
+                                        <div class="border rounded p-2 text-white shadow-sm pallet-card"
+                                             draggable="{% if can_move %}true{% else %}false{% endif %}"
+                                             data-move-kind="pallet"
+                                             data-pallet-id="{{ p.pk }}"
+                                             data-pallet-code="{{ p.pallet_code }}"
+                                             data-current-shelf="{{ p.shelf_id|default_if_none:'' }}"
+                                             data-current-store="{{ p.cold_store_id|default_if_none:'' }}"
+                                             style="background-color: {{ p.trader_color|default:'var(--rf-primary)' }}; min-width: 170px; border-radius: 8px;">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <a href="{% url 'pallet_detail' p.pk %}" class="fw-bold text-white text-decoration-none">
+                                                    {{ p.pallet_code }}
+                                                </a>
+                                                <span class="badge bg-light text-dark" style="font-size: 0.7rem;">{{ p.days_in_cooling }}يوم</span>
+                                            </div>
+                                            <div class="small fw-bold text-warning text-truncate" title="{{ p.trader.name }}">
+                                                <i class="bi bi-person me-1"></i> {{ p.trader.name }}
+                                            </div>
+                                            <div class="small opacity-90" style="font-size: 0.75rem;">
+                                                البضاعة: <strong>{{ p.crop.name }}</strong>
+                                            </div>
+                                            <div class="small opacity-90" style="font-size: 0.75rem;">
+                                                {{ p.box_count }} صندق ({{ p.estimated_net_weight }}كغ)
+                                            </div>
+                                            <div class="mt-2 pt-1 border-top border-white-50 text-end">
+                                                <a href="{% url 'pallet_detail' p.pk %}" class="btn btn-xs btn-light py-0 px-2 small text-dark" style="font-size: 0.7rem;">
+                                                    نقل / تفاصيل
+                                                </a>
+                                            </div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                    {% else %}
+                                    <div class="text-center py-3 text-muted small">
+                                        <i class="bi bi-inbox fs-4 d-block mb-1 text-secondary"></i>
+                                        السيخ فارغ، لا توجد طبالي مخزنة هنا.
+                                    </div>
+                                    {% endif %}
+
+                                    {% if shelf_data.packed_pallets %}
+                                    <div class="mt-3 pt-2 border-top">
+                                        <div class="small fw-bold text-primary mb-2">
+                                            <i class="bi bi-box2-heart me-1"></i> طبالي موضبة في تبريد المشغل ({{ shelf_data.packed_pallets|length }})
+                                        </div>
+                                        <div class="d-flex flex-wrap gap-2">
+                                            {% for pp in shelf_data.packed_pallets %}
+                                            <div class="border rounded p-2 bg-white shadow-sm packed-pallet-card"
+                                                 draggable="{% if can_move %}true{% else %}false{% endif %}"
+                                                 data-move-kind="packed"
+                                                 data-pallet-id="{{ pp.pk }}"
+                                                 data-pallet-code="{{ pp.packed_pallet_code }}"
+                                                 data-current-shelf="{{ pp.shelf_id|default_if_none:'' }}"
+                                                 data-current-store="{{ pp.cold_store_id|default_if_none:'' }}"
+                                                 style="min-width: 200px; border-radius: 8px;">
+                                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                                    <span class="fw-bold text-success small">{{ pp.packed_pallet_code }}</span>
+                                                    <span class="badge bg-info text-dark" style="font-size: 0.68rem;">{{ pp.cooling_days_total }} يوم</span>
+                                                </div>
+                                                <div class="small fw-bold">{{ pp.trader.name }}</div>
+                                                <div class="small text-muted">{{ pp.crop.name }} • {{ pp.size_name }} • {{ pp.box_count }} صندوق • {{ pp.net_weight_kg }} كغ</div>
+                                                <div class="text-end mt-1">
+                                                    <a href="{% url 'packed_pallet_cooling_history' pp.pk %}" class="btn btn-outline-secondary btn-sm py-0" style="font-size: 0.7rem;">سجل التبريد</a>
+                                                    {% include "core/_delete_button.html" with app_label="packing" model_name="packedpallet" object_id=pp.pk title="حذف الطبلية الموضبة بشكل منفرد" %}
+                                                </div>
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endwith %}
+                        {% endfor %}
+                    </div>
+
+                </div>
+            </div>
+        </div>
+        {% endwith %}
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .shelf-dropzone {
+        transition: box-shadow .15s ease, border-color .15s ease, transform .15s ease;
+    }
+    .shelf-dropzone.drop-hover {
+        border-color: #198754 !important;
+        box-shadow: 0 0 0 3px rgba(25, 135, 84, .5) !important;
+        transform: translateY(-2px);
+    }
+    .shelf-dropzone::after {
+        content: "أفلت الطبلية هنا لنقلها إلى هذا السيخ";
+        display: none;
+        text-align: center;
+        font-size: .75rem;
+        font-weight: 700;
+        color: #198754;
+        background: #f0fff6;
+        border: 2px dashed #198754;
+        border-radius: 8px;
+        padding: 6px 8px;
+        margin-top: 8px;
+    }
+    .shelf-dropzone.drop-hover::after {
+        display: block;
+    }
+    [data-move-kind] {
+        transition: opacity .12s ease, box-shadow .12s ease;
+    }
+    [data-move-kind][draggable="true"] {
+        cursor: grab;
+    }
+    [data-move-kind][draggable="true"]:active {
+        cursor: grabbing;
+    }
+    [data-move-kind].dragging {
+        opacity: .4;
+        filter: grayscale(.35);
+    }
+    .touch-ghost {
+        position: fixed;
+        z-index: 3000;
+        pointer-events: none;
+        background: #198754;
+        color: #fff;
+        font-weight: 700;
+        font-size: .8rem;
+        padding: 8px 14px;
+        border-radius: 999px;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, .35);
+        max-width: 240px;
+        transform: translate(-50%, -140%);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const map = document.getElementById('coldMap');
+    if (!map) return;
+
+    const cfg = {
+        palletMove: map.dataset.palletMoveTemplate || '',
+        packedMove: map.dataset.packedMoveTemplate || '',
+        csrf: map.dataset.csrf || '',
+        canMove: map.dataset.canMove === '1'
+    };
+
+    let draggedCard = null;
+    let busy = false;
+    let toastEl = null;
+
+    function moveUrl(template, id) {
+        const i = template.lastIndexOf('0');
+        return i === -1 ? template : template.slice(0, i) + id + template.slice(i + 1);
+    }
+
+    function showToast(message, ok) {
+        if (!toastEl) {
+            toastEl = document.createElement('div');
+            toastEl.id = 'mapToast';
+            toastEl.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);' +
+                'z-index:2100;max-width:min(680px,92vw);padding:12px 22px;border-radius:10px;' +
+                'font-weight:700;font-size:.9rem;box-shadow:0 8px 26px rgba(0,0,0,.28);display:none;';
+            document.body.appendChild(toastEl);
+        }
+        toastEl.textContent = message;
+        toastEl.style.background = ok ? '#198754' : '#dc3545';
+        toastEl.style.color = '#fff';
+        toastEl.style.display = 'block';
+        clearTimeout(toastEl._t);
+        toastEl._t = setTimeout(function () { toastEl.style.display = 'none'; }, ok ? 3500 : 5500);
+    }
+
+    function clearHovers() {
+        document.querySelectorAll('.drop-hover').forEach(function (el) {
+            el.classList.remove('drop-hover');
+        });
+    }
+
+    // ============================================================
+    // الحاسوب: سحب بالفأرة
+    // ============================================================
+    document.addEventListener('dragstart', function (e) {
+        const card = e.target && e.target.closest ? e.target.closest('[data-move-kind]') : null;
+        if (!card || !cfg.canMove || busy) {
+            if (card && !cfg.canMove) {
+                showToast('نقل الطبالي متاح لحسابات المالك/المدير/المحاسب فقط.', false);
+            }
+            e.preventDefault();
+            return;
+        }
+        draggedCard = card;
+        card.classList.add('dragging');
+        try {
+            e.dataTransfer.setData('text/plain', (card.dataset.moveKind || 'pallet') + ':' + (card.dataset.palletId || ''));
+            e.dataTransfer.effectAllowed = 'move';
+        } catch (err) { /* قد يمنع المتصفح الكتابة */ }
+    });
+
+    document.addEventListener('dragend', function () {
+        if (draggedCard) draggedCard.classList.remove('dragging');
+        draggedCard = null;
+        clearHovers();
+    });
+
+    document.addEventListener('dragover', function (e) {
+        if (!draggedCard) return;
+        const zone = e.target && e.target.closest ? e.target.closest('[data-shelf-drop]') : null;
+        if (!zone) return;
+        e.preventDefault();
+        try { e.dataTransfer.dropEffect = 'move'; } catch (err) { /* لا شيء */ }
+        zone.classList.add('drop-hover');
+    });
+
+    document.addEventListener('dragleave', function (e) {
+        const zone = e.target && e.target.closest ? e.target.closest('[data-shelf-drop]') : null;
+        if (!zone) return;
+        if (e.relatedTarget && zone.contains(e.relatedTarget)) return;
+        zone.classList.remove('drop-hover');
+    });
+
+    document.addEventListener('drop', function (e) {
+        const zone = e.target && e.target.closest ? e.target.closest('[data-shelf-drop]') : null;
+        if (!zone) return;
+        e.preventDefault();
+        zone.classList.remove('drop-hover');
+        if (!draggedCard || busy) return;
+        const card = draggedCard;
+        draggedCard = null;
+        if (card) card.classList.remove('dragging');
+        handleDrop(zone, card);
+    });
+
+    // ============================================================
+    // التنفيذ: إرسال النقل إلى الخادم (السعة والصلاحية تُفحص هناك)
+    // ============================================================
+    async function handleDrop(zone, card) {
+        if (!card) return;
+
+        const shelfId = zone.dataset.shelfId || '';
+        const storeId = zone.dataset.storeId || '';
+        const shelfNumber = zone.dataset.shelfNumber || '';
+        const free = zone.dataset.shelfFree;
+        const kind = card.dataset.moveKind || 'pallet';
+        const palletId = card.dataset.palletId;
+
+        clearHovers();
+
+        if (!palletId) return;
+
+        if (String(card.dataset.currentShelf || '') === String(shelfId) &&
+            String(card.dataset.currentStore || '') === String(storeId)) {
+            showToast('الطبلية موجودة أصلاً في هذا السيخ.', true);
+            return;
+        }
+
+        if (free !== '' && free !== undefined && Number(free) <= 0) {
+            showToast('السيخ ' + shelfNumber + ' ممتلئ — اختر سيخاً آخر متاحاً.', false);
+            return;
+        }
+
+        busy = true;
+        const url = moveUrl(kind === 'packed' ? cfg.packedMove : cfg.palletMove, palletId);
+
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': cfg.csrf,
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+                },
+                body: new URLSearchParams({ shelf: shelfId, cold_store: storeId })
+            });
+
+            let data = null;
+            try { data = await res.json(); } catch (err) { data = null; }
+
+            const ok = !!(res.ok && data && data.ok);
+            showToast(data && data.message ? data.message : 'تعذّر تنفيذ النقل.', ok);
+
+            if (ok) {
+                // إعادة تحميل الصفحة لتحديث الإشغال والعدادات في كل الأسياخ
+                setTimeout(function () { window.location.reload(); }, 900);
+            }
+        } catch (err) {
+            showToast('تعذّر الاتصال بالخادم أثناء النقل. تحقّق من الشبكة وأعد المحاولة.', false);
+        } finally {
+            busy = false;
+        }
+    }
+
+    // ============================================================
+    // الهواتف: ضغطة مطوّلة على البطاقة ثم تحريك الإصبع للسحب
+    // ============================================================
+    let touchState = null;
+
+    function endTouch() {
+        if (!touchState) return;
+        clearTimeout(touchState.timer);
+        if (touchState.ghost && touchState.ghost.parentNode) touchState.ghost.parentNode.removeChild(touchState.ghost);
+        if (touchState.card) touchState.card.classList.remove('dragging');
+        clearHovers();
+        touchState = null;
+    }
+
+    document.addEventListener('touchstart', function (e) {
+        if (!cfg.canMove || busy || touchState) return;
+        const card = e.target && e.target.closest ? e.target.closest('[data-move-kind]') : null;
+        if (!card) return;
+        const t = e.touches[0];
+        touchState = {
+            card: card,
+            startX: t.clientX,
+            startY: t.clientY,
+            lifted: false,
+            ghost: null,
+            timer: null
+        };
+        touchState.timer = setTimeout(function () {
+            if (!touchState) return;
+            touchState.lifted = true;
+            card.classList.add('dragging');
+            const ghost = document.createElement('div');
+            ghost.className = 'touch-ghost';
+            ghost.textContent = card.dataset.palletCode || 'طبلية';
+            document.body.appendChild(ghost);
+            touchState.ghost = ghost;
+            ghost.style.left = t.clientX + 'px';
+            ghost.style.top = t.clientY + 'px';
+            if (navigator.vibrate) { try { navigator.vibrate(15); } catch (err) { /* لا شيء */ } }
+        }, 450);
+    }, { passive: true });
+
+    document.addEventListener('touchmove', function (e) {
+        if (!touchState) return;
+        const t = e.touches[0];
+        if (!touchState.lifted) {
+            if (Math.abs(t.clientX - touchState.startX) > 10 || Math.abs(t.clientY - touchState.startY) > 10) {
+                endTouch(); // البداية كانت تمرير الصفحة لا سحباً
+            }
+            return;
+        }
+        e.preventDefault();
+        if (touchState.ghost) {
+            touchState.ghost.style.left = t.clientX + 'px';
+            touchState.ghost.style.top = t.clientY + 'px';
+        }
+        const el = document.elementFromPoint(t.clientX, t.clientY);
+        const zone = el && el.closest ? el.closest('[data-shelf-drop]') : null;
+        clearHovers();
+        if (zone) zone.classList.add('drop-hover');
+    }, { passive: false });
+
+    document.addEventListener('touchend', function (e) {
+        if (!touchState) return;
+        const st = touchState;
+        if (!st.lifted) { endTouch(); return; }
+
+        const t = e.changedTouches && e.changedTouches[0];
+        let zone = null;
+        if (t) {
+            const el = document.elementFromPoint(t.clientX, t.clientY);
+            zone = el && el.closest ? el.closest('[data-shelf-drop]') : null;
+        }
+
+        const card = st.card;
+        endTouch();
+
+        if (!zone) {
+            showToast('أفلت البطاقة داخل أحد الأسياخ لتنفيذ النقل.', false);
+            return;
+        }
+        handleDrop(zone, card);
+    }, { passive: true });
+
+    document.addEventListener('touchcancel', endTouch, { passive: true });
+})();
+</script>
+{% endblock %}

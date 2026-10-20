@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+
+{% block title %}تسليم الفارغ | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-box-arrow-up-left me-2"></i> تسليم الفارغ</h3>
+            <p class="text-muted small mb-0">
+                قسم مستقل لتسليم الصناديق الفارغة المجموعة في المشغل بعد التفريغ:
+                <strong>إرجاع إلى المزرعة</strong> بلا مقابل مالي، أو <strong>بيع لمنظمة / جهة أخرى</strong> بمقابل يُقيَّد في الخزينة.
+                لا يُخلط مع عهدة التجار ولا مع مخزون صناديق الشركة.
+            </p>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <a href="{% url 'empty_box_recipient_create' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-building-add me-1"></i> جهة مستلمة جديدة
+            </a>
+            <a href="{% url 'empty_box_delivery_create' %}" class="btn btn-royal">
+                <i class="bi bi-plus-circle me-1"></i> أمر تسليم فارغ جديد
+            </a>
+        </div>
+    </div>
+
+    <!-- ملخص إجمالي -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="text-muted small fw-bold">إجمالي المُرجَع للمزارع</div>
+                    <div class="fs-3 fw-bold text-primary">{{ total_returned }}</div>
+                    <div class="text-muted small">صندوق فارغ (بلا مقابل مالي)</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="text-muted small fw-bold">إجمالي المبيع لمنظمات</div>
+                    <div class="fs-3 fw-bold text-success">{{ total_sold }}</div>
+                    <div class="text-muted small">صندوق فارغ</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="text-muted small fw-bold">قيمة البيع المُقبَضة</div>
+                    <div class="fs-3 fw-bold text-success">{{ total_collected_amount }} <small class="fs-6">دينار</small></div>
+                    <div class="text-muted small">مقيَّدة في الخزينة</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="text-muted small fw-bold">قيمة بيع على الحساب</div>
+                    <div class="fs-3 fw-bold text-warning">{{ total_receivable_amount }} <small class="fs-6">دينار</small></div>
+                    <div class="text-muted small">لم تُقبض بعد (بلا قيد خزينة)</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- المتاح فعلاً لكل نوع -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white py-3">
+            <h5 class="mb-0 fw-bold"><i class="bi bi-inboxes me-2 text-success"></i> الفارغ المتاح للتسليم حسب النوع</h5>
+            <small class="text-muted">
+                المتاح = إجمالي الفارغ الناتج عن تفريغ البضاعة الخام − ما سُلِّم فعلاً (إرجاعاً أو بيعاً).
+            </small>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>نوع الصندوق</th>
+                        <th>اللون / النوع</th>
+                        <th>المتاح للتسليم</th>
+                        <th>إجراء</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in available_types %}
+                    <tr>
+                        <td class="fw-bold">{{ row.box_type.name }}</td>
+                        <td>{{ row.box_type.description|default:"—" }}</td>
+                        <td class="fw-bold text-success fs-5">{{ row.available }}</td>
+                        <td>
+                            <a href="{% url 'empty_box_delivery_create' %}?box_type={{ row.box_type.pk }}"
+                               class="btn btn-success btn-sm">
+                                <i class="bi bi-box-arrow-up-left me-1"></i> تسليم من هذا النوع
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="4" class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox fs-4 d-block mb-1 text-secondary"></i>
+                            لا يوجد فارغ متاح للتسليم حالياً.
+                            سجّل «صناديق المزرعة» لسيارات الوصول أولاً من
+                            <a href="{% url 'farm_boxes_dashboard' %}">صفحة الصناديق الواردة من المزرعة</a>.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- فلتر -->
+    <form method="get" class="d-flex flex-wrap align-items-end gap-2 mb-3">
+        <div>
+            <label class="small fw-bold mb-1 d-block">نوع التسليم</label>
+            <select name="kind" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">الكل</option>
+                {% for value, label in kind_choices %}
+                <option value="{{ value }}" {% if selected_kind == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="small fw-bold mb-1 d-block">الجهة المستلمة</label>
+            <select name="recipient" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">كل الجهات</option>
+                {% for r in recipients %}
+                <option value="{{ r.pk }}" {% if selected_recipient and selected_recipient.pk == r.pk %}selected{% endif %}>
+                    {{ r.name }} ({{ r.get_kind_display }})
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        {% if selected_kind or selected_recipient %}
+        <a href="{% url 'empty_box_delivery_list' %}" class="btn btn-sm btn-outline-secondary">إلغاء الفلتر</a>
+        {% endif %}
+    </form>
+
+    <!-- أوامر التسليم -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white py-3">
+            <h5 class="mb-0 fw-bold"><i class="bi bi-list-check me-2 text-success"></i> أوامر تسليم الفارغ</h5>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>رقم الأمر</th>
+                        <th>النوع</th>
+                        <th>الجهة المستلمة</th>
+                        <th>نوع الصندوق</th>
+                        <th>الكمية</th>
+                        <th>سعر الوحدة</th>
+                        <th>الإجمالي</th>
+                        <th>التاريخ</th>
+                        <th>الحالة</th>
+                        <th>المقبوض</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in deliveries %}
+                    <tr>
+                        <td>
+                            <a href="{% url 'empty_box_delivery_detail' d.pk %}" class="fw-bold text-decoration-none">
+                                {{ d.reference_number }}
+                            </a>
+                        </td>
+                        <td>
+                            {% if d.is_return %}
+                            <span class="badge bg-primary-subtle text-primary">إرجاع للمزرعة</span>
+                            {% else %}
+                            <span class="badge bg-success-subtle text-success">بيع لمنظمة</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ d.recipient.name }}</td>
+                        <td>{{ d.box_type.name }}</td>
+                        <td class="fw-bold">{{ d.quantity }}</td>
+                        <td>{% if d.is_sale %}{{ d.unit_price }} دينار{% else %}—{% endif %}</td>
+                        <td class="fw-bold">{% if d.is_sale %}{{ d.total_amount }} دينار{% else %}—{% endif %}</td>
+                        <td class="small">{{ d.delivery_date|date:"Y-m-d" }}</td>
+                        <td>
+                            {% if d.status == 'DELIVERED' %}
+                            <span class="badge bg-success">مُسلَّم</span>
+                            {% else %}
+                            <span class="badge bg-secondary">مسودة</span>
+                            {% endif %}
+                        </td>
+                        <td class="small">{{ d.payment_status_label }}</td>
+                        <td class="text-nowrap">
+                            {% if d.status != 'DELIVERED' %}
+                            <a href="{% url 'empty_box_delivery_edit' d.pk %}" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            {% endif %}
+                            <a href="{% url 'empty_box_delivery_detail' d.pk %}" class="btn btn-outline-secondary btn-sm">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                            {% include "core/_delete_button.html" with app_label="boxes" model_name="emptyboxdelivery" object_id=d.pk %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="11" class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox fs-4 d-block mb-1 text-secondary"></i>
+                            لا توجد أوامر تسليم بعد. اضغط «أمر تسليم فارغ جديد».
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- الجهات المستلمة -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white py-3">
+            <h5 class="mb-0 fw-bold"><i class="bi bi-buildings me-2 text-success"></i> الجهات المستلمة للفارغ</h5>
+            <small class="text-muted">المزارع التي نُرجِع إليها الفارغ، والمنظمات التي نبيع لها.</small>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>الجهة</th>
+                        <th>النوع</th>
+                        <th>المسؤول</th>
+                        <th>الهاتف</th>
+                        <th>العنوان</th>
+                        <th>الحالة</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in recipients %}
+                    <tr>
+                        <td class="fw-bold">{{ r.name }}</td>
+                        <td>
+                            {% if r.kind == 'FARM' %}
+                            <span class="badge bg-primary-subtle text-primary">مزرعة (إرجاع)</span>
+                            {% else %}
+                            <span class="badge bg-success-subtle text-success">منظمة / جهة (بيع)</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ r.contact_person|default:"—" }}</td>
+                        <td>{{ r.phone|default:"—" }}</td>
+                        <td>{{ r.address|default:"—" }}</td>
+                        <td>
+                            {% if r.is_active %}
+                            <span class="badge bg-success-subtle text-success">نشطة</span>
+                            {% else %}
+                            <span class="badge bg-secondary">غير نشطة</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-nowrap">
+                            <a href="{% url 'empty_box_recipient_edit' r.pk %}" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            {% include "core/_delete_button.html" with app_label="boxes" model_name="emptyboxrecipient" object_id=r.pk %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox fs-4 d-block mb-1 text-secondary"></i>
+                            لا توجد جهات بعد. أضف مزرعة أو منظمة أولاً.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}الطبالي الموضبة | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-box-seam me-2"></i> سجل الطبالي الموضبة الجاهزة والمبرّدة والمسلّمة</h3>
+            <p class="text-muted small mb-0">
+                رموز الطبالي الموضبة، موقعها في البرادات، وعدد أيام التبريد وأجرتها اليومية.
+                {% if cooling_rate %}
+                أجرة التبريد اليومية المعتمدة: <strong>{{ cooling_rate }} دينار / طبلية / يوم</strong>.
+                {% else %}
+                أجرة التبريد اليومية غير محددة بعد (0) — تُضبط من الإعدادات.
+                {% endif %}
+            </p>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <a href="{% url 'packed_pallet_cooling_in' %}" class="btn btn-primary">
+                <i class="bi bi-snow2 me-1"></i> إدخال طبالي إلى البراد (تبريد يومي)
+            </a>
+            <a href="{% url 'cooling_statement' %}" class="btn btn-outline-primary">
+                <i class="bi bi-clipboard-data me-1"></i> كشف التبريد
+            </a>
+            <a href="{% url 'delivery_note_create' %}" class="btn btn-royal">
+                <i class="bi bi-truck me-1"></i> إنشاء بيان تسليم
+            </a>
+        </div>
+    </div>
+
+    <div class="mb-3 d-flex flex-wrap gap-1">
+        <a href="{% url 'packed_pallets_list' %}" class="btn btn-sm {% if not status_filter %}btn-dark{% else %}btn-outline-secondary{% endif %}">الكل</a>
+        {% for value, label in status_choices %}
+        <a href="?status={{ value }}" class="btn btn-sm {% if status_filter == value %}btn-dark{% else %}btn-outline-secondary{% endif %}">{{ label }}</a>
+        {% endfor %}
+    </div>
+
+    <form method="post" action="{% url 'packed_pallet_cooling_out' %}">
+        {% csrf_token %}
+        <div class="card shadow-sm">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 36px;">
+                                <input type="checkbox" class="form-check-input" id="selectAllCooling" title="تحديد كل الطبالي داخل التبريد">
+                            </th>
+                            <th>رمز الطبلية الموضبة</th>
+                            <th>التاجر</th>
+                            <th>البضاعة والمقاس</th>
+                            <th>عدد الصناديق</th>
+                            <th>الوزن الصافي</th>
+                            <th>الحالة والموقع</th>
+                            <th>أيام التبريد</th>
+                            <th>أجرة التبريد</th>
+                            <th>إجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in pallets %}
+                        <tr>
+                            <td>
+                                {% if p.status == 'IN_COOLING' %}
+                                <input type="checkbox" class="form-check-input cooling-select" name="selected_pallets" value="{{ p.pk }}">
+                                {% endif %}
+                            </td>
+                            <td class="fw-bold text-success">{{ p.packed_pallet_code }}<br><small class="text-muted">{{ p.original_pallet.pallet_code }}</small></td>
+                            <td class="fw-bold">{{ p.trader.name }}</td>
+                            <td>{{ p.crop.name }} <span class="badge bg-secondary ms-1">{{ p.size_name }}</span></td>
+                            <td>{{ p.box_count }}</td>
+                            <td class="fw-bold">{{ p.net_weight_kg }} كغ</td>
+                            <td>
+                                {% if p.status == 'IN_COOLING' %}
+                                <span class="badge bg-info text-dark"><i class="bi bi-snow2 me-1"></i> في تبريد المشغل</span>
+                                <div class="small text-muted">{{ p.location_display }}</div>
+                                {% elif p.status == 'DELIVERED' %}
+                                <span class="badge bg-primary">مسلّمة للتاجر</span>
+                                {% else %}
+                                <span class="badge bg-success">جاهزة وموضبة</span>
+                                {% endif %}
+                            </td>
+                            <td class="fw-bold">{{ p.cooling_days_total }} يوم</td>
+                            <td>{{ p.cooling_fee }} دينار</td>
+                            <td class="text-nowrap">
+                                <a href="{% url 'packed_pallet_cooling_history' p.pk %}" class="btn btn-outline-secondary btn-sm" title="سجل فترات التبريد">
+                                    <i class="bi bi-clock-history"></i>
+                                </a>
+                                <a href="{% url 'packed_pallet_print_label' p.pk %}" target="_blank" class="btn btn-outline-dark btn-sm" title="طباعة ملصق QR">
+                                    <i class="bi bi-printer"></i>
+                                </a>
+                                <a href="{% url 'packing_detail' p.session_id %}" class="btn btn-outline-success btn-sm" title="جلسة التوضيب">
+                                    <i class="bi bi-diagram-3"></i>
+                                </a>
+                                {% include "core/_delete_button.html" with app_label="packing" model_name="packedpallet" object_id=p.pk title="حذف الطبلية الموضبة بشكل منفرد" %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="10" class="text-center py-5 text-muted">
+                                لا توجد طبالي موضبة مطابقة لهذا التصنيف.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-footer bg-white d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div class="text-muted small">
+                    <i class="bi bi-info-circle me-1"></i>
+                    حدّد الطبالي الموجودة داخل البراد ثم اضغط «إخراج المحدد» لإيقاف احتساب التبريد اليومي.
+                </div>
+                <button type="submit" class="btn btn-outline-danger">
+                    <i class="bi bi-box-arrow-right me-1"></i> إخراج المحدد من البراد (إيقاف التبريد)
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const master = document.getElementById('selectAllCooling');
+    const boxes = document.querySelectorAll('.cooling-select');
+    if (master) {
+        master.addEventListener('change', function () {
+            boxes.forEach(function (b) { b.checked = master.checked; });
+        });
+    }
+});
+</script>
+{% endblock %}

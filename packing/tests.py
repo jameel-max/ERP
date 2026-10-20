@@ -1,0 +1,872 @@
+from django.test import TestCase, Client
+from django.urls import reverse
+from django.core.exceptions import ValidationError
+from decimal import Decimal
+from datetime import timedelta
+from django.utils import timezone
+
+from core.models import User, SystemSetting, Notification
+from operations.models import Trader, Crop, BoxType, ColdStore, Shelf, TruckReceipt, Pallet, TraderPackingRate
+from operations.services import ReceptionService
+from boxes.models import TraderBoxBalance, TraderBoxTransaction, FarmBoxType
+from boxes.services import BoxService
+from packing.models import PackingSession, PackedPallet, PackedPalletCoolingLog, DeliveryNote
+from packing.services import PackingService
+from invoicing.models import Invoice, InvoiceItem
+from invoicing.services import InvoiceService
+
+
+class Phase2ComprehensiveTests(TestCase):
+    def setUp(self):
+        self.settings = SystemSetting.get_settings()
+        self.settings.company_name_en = 'Royal Fruit'
+        self.settings.weight_tolerance_pct = Decimal('1.00')  # 1% حد السماح
+        self.settings.save()
+
+        self.manager = User.objects.create_user(
+            username='phase2_manager', password='pass', role=User.Role.MANAGER
+        )
+        self.accountant = User.objects.create_user(
+            username='phase2_accountant', password='pass', role=User.Role.ACCOUNTANT
+        )
+
+        self.trader1 = Trader.objects.create(code='T001', name='ابو معتز القيسي')
+        self.trader2 = Trader.objects.create(code='T002', name='احمد خليل')
+
+        self.crop = Crop.objects.create(name='نكتارين')
+        self.box_blue = BoxType.objects.create(
+            name='عكاز أزرق 8KG',
+            color_or_type='أزرق',
+            tare_weight=Decimal('0.800'),
+            discount_price=Decimal('1.500'),
+            company_stock=1000
+        )
+        self.box_green = BoxType.objects.create(
+            name='عكاز أخضر',
+            color_or_type='أخضر',
+            tare_weight=Decimal('0.800'),
+            discount_price=Decimal('1.250'),
+            company_stock=1000
+        )
+        # نوع الصناديق الواردة من المزرعة (يُستخدم في استلام السيارة فقط)
+        self.farm_box_blue = FarmBoxType.objects.create(
+            name='صندوق مزرعة أزرق',
+            description='أزرق',
+            tare_weight=Decimal('0.800'),
+        )
+
+        self.cold_store = ColdStore.objects.create(name='البراد الأول', code='CS-01', capacity_pallets=50)
+        self.shelf = Shelf.objects.create(cold_store=self.cold_store, shelf_number='1', capacity_pallets=25)
+
+        # استقبال سيارة لبدء توضيب طباليها
+        reception_data = {
+            'trader': self.trader1.id,
+            'crop': self.crop.id,
+            'box_type': self.farm_box_blue.id,
+            'box_count': 100,
+            'gross_weight': Decimal('2000.000'),
+            'tare_weight': Decimal('1000.000'),
+            'pallet_count': 2,
+            'cold_store': self.cold_store.id,
+            'shelf': self.shelf.id,
+        }
+        self.truck = ReceptionService.process_truck_reception(reception_data, user=self.accountant)
+        self.pallet1 = self.truck.pallets.first()
+        self.pallet2 = self.truck.pallets.last()
+
+    def test_rule_29_trader_box_balance_isolation(self):
+        """
+        القاعدة 29: رصيد صناديق كل تاجر = المستلم − المرتجع، دون خلط بين التجار
+        """
+        # ابو معتز يستلم 100 صندوق أزرق و 50 أخضر
+        BoxService.record_box_movement(
+            trader=self.trader1,
+            box_type=self.box_blue,
+            transaction_type=TraderBoxTransaction.Type.ISSUE,
+            quantity=100,
+            source='مستودع المشغل',
+            destination='مزرعة ابو معتز',
+            reason='صرف صناديق جني',
+            user=self.accountant
+        )
+        BoxService.record_box_movement(
+            trader=self.trader1,
+            box_type=self.box_green,
+            transaction_type=TraderBoxTransaction.Type.ISSUE,
+            quantity=50,
+            source='مستودع المشغل',
+            destination='مزرعة ابو معتز',
+            reason='صرف صناديق جني',
+            user=self.accountant
+        )
+
+        # التاجر الثاني (احمد خليل) يستلم 80 صندوق أزرق
+        BoxService.record_box_movement(
+            trader=self.trader2,
+            box_type=self.box_blue,
+            transaction_type=TraderBoxTransaction.Type.ISSUE,
+            quantity=80,
+            source='مستودع المشغل',
+            destination='مزرعة احمد',
+            reason='صرف صناديق جني',
+            user=self.accountant
+        )
+
+        # ابو معتز يرجع 30 صندوق أزرق
+        BoxService.record_box_movement(
+            trader=self.trader1,
+            box_type=self.box_blue,
+            transaction_type=TraderBoxTransaction.Type.RETURN,
+            quantity=30,
+            source='مزرعة ابو معتز',
+            destination='مستودع المشغل',
+            reason='إرجاع صناديق فارغة',
+            user=self.accountant
+        )
+
+        # فحص رصيد ابو معتز: 100 - 30 = 70 أزرق، و 50 أخضر
+        bal1_blue = TraderBoxBalance.objects.get(trader=self.trader1, box_type=self.box_blue)
+        self.assertEqual(bal1_blue.issued_count, 100)
+        self.assertEqual(bal1_blue.returned_count, 30)
+        self.assertEqual(bal1_blue.net_balance, 70)
+        # القيمة المالية = 70 × 1.500 = 105.000 د.أ
+        self.assertEqual(bal1_blue.total_financial_value, Decimal('105.000'))
+
+        bal1_green = TraderBoxBalance.objects.get(trader=self.trader1, box_type=self.box_green)
+        self.assertEqual(bal1_green.net_balance, 50)
+        # 50 × 1.250 = 62.500 د.أ
+        self.assertEqual(bal1_green.total_financial_value, Decimal('62.500'))
+
+        # فحص رصيد التاجر الثاني احمد خليل دون خلط
+        bal2_blue = TraderBoxBalance.objects.get(trader=self.trader2, box_type=self.box_blue)
+        self.assertEqual(bal2_blue.net_balance, 80)
+        self.assertEqual(bal2_blue.total_financial_value, Decimal('120.000'))
+
+    def test_rule_18_weight_diff_not_automatically_waste_and_randeman(self):
+        """
+        القاعدة 18: اختلاف الوزن لا يُصنَّف هالكاً تلقائياً، والتمييز بين الداخل والموضب والهالك والفرق غير المفسر
+        القاعدة 14: غياب الإنتاج لا يسبب قسمة على صفر
+        """
+        # بدء جلسة توضيب للطبلية 1 (وزنها الصافي الداخل = 450 كغ مثلاً)
+        session = PackingService.start_packing_session(
+            trader=self.trader1,
+            crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet1],
+            workshop_name='خط 1',
+            user=self.accountant
+        )
+        self.assertEqual(session.source_pallets.count(), 1)
+        self.pallet1.refresh_from_db()
+        self.assertEqual(self.pallet1.status, Pallet.Status.OUT_FOR_PACKING)
+
+        input_weight = session.input_weight_kg
+
+        # نواتج: ناتج موضب 400 كغ، وهالك مصنف 20 كغ
+        # الفرق غير المفسر = input_weight - 420 كغ (ليس هالكاً تلقائياً)
+        outputs_data = [{
+            'size_name': 'XL',
+            'box_type': self.box_blue,
+            'box_count': 50,
+            'net_weight_kg': Decimal('400.000'),
+            'pallet_count': 1
+        }]
+        wastes_data = [{
+            'waste_type': 'فرز صغير غير مطابق',
+            'weight_kg': Decimal('20.000'),
+            'notes': 'عيوب حقلية'
+        }]
+
+        PackingService.record_outputs_and_finalize(session, outputs_data, wastes_data, user=self.accountant)
+
+        session.refresh_from_db()
+        self.assertEqual(session.output_packed_kg, Decimal('400.000'))
+        self.assertEqual(session.waste_weight_kg, Decimal('20.000'))
+        expected_diff = max(Decimal('0.000'), input_weight - Decimal('420.000'))
+        self.assertEqual(session.unexplained_diff_kg, expected_diff)
+
+        # الرندمان = (400 / input_weight) * 100
+        expected_randeman = ((Decimal('400.000') / input_weight) * Decimal('100.00')).quantize(Decimal('0.01'))
+        self.assertEqual(session.randeman_pct, expected_randeman)
+
+        # التحقق من أن الطبلية الأصلية أصبحت موضبة
+        self.pallet1.refresh_from_db()
+        self.assertEqual(self.pallet1.status, Pallet.Status.PACKED)
+
+    def test_rule_26_packed_pallet_follows_original_and_delivery_note(self):
+        """
+        القاعدة 26: الطبلية الموضبة تحمل رقم الأصل (مثال: 2026-0001-P01-XL)
+        وحالة الطبلية: في البراد -> خرجت للتوضيب -> موضبة -> مسلّمة
+        """
+        session = PackingService.start_packing_session(
+            trader=self.trader1,
+            crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet1],
+            user=self.accountant
+        )
+        outputs_data = [{
+            'size_name': 'XL',
+            'box_type': self.box_blue,
+            'box_count': 50,
+            'net_weight_kg': session.input_weight_kg,
+            'pallet_count': 1
+        }]
+        PackingService.record_outputs_and_finalize(session, outputs_data, user=self.accountant)
+
+        packed_pallet = session.packed_pallets.first()
+        expected_code = f"{self.pallet1.pallet_code}-XL"
+        self.assertEqual(packed_pallet.packed_pallet_code, expected_code)
+        self.assertEqual(packed_pallet.status, PackedPallet.Status.PACKED)
+
+        # QR الموضب يحتوي على الأصل
+        qr_data = packed_pallet.get_qr_data()
+        self.assertEqual(qr_data['original_pallet'], self.pallet1.pallet_code)
+        self.assertEqual(qr_data['trader'], self.trader1.name)
+
+        # تسليم الطبلية الموضبة عبر بيان تسليم
+        delivery_note = PackingService.create_delivery_note(
+            trader=self.trader1,
+            packed_pallets=[packed_pallet],
+            driver_name='محمود',
+            truck_plate='12-34567',
+            receiver_name='التاجر نفسه',
+            notes='تسليم كامل الدفعة الموضبة',
+            user=self.accountant
+        )
+
+        self.assertIsNotNone(delivery_note.pk)
+        packed_pallet.refresh_from_db()
+        self.assertEqual(packed_pallet.status, PackedPallet.Status.DELIVERED)
+
+    def test_rule_3_box_discount_no_double_counting_and_invoice_sync(self):
+        """
+        القاعدة 3: خصم الصناديق لا يُحتسب مرتين
+        ربط الفاتورة بالكميات الموضبة فعلاً، وخصم عجز الصناديق، وتوليد PDF
+        """
+        # 1. تسجيل سعر توضيب للتاجر
+        rate = TraderPackingRate.objects.create(
+            trader=self.trader1,
+            method=TraderPackingRate.Method.MACHINE,
+            rate_per_kg=Decimal('0.080'),
+            effective_date=timezone.now().date()
+        )
+
+        # 2. إنشاء الفاتورة
+        invoice = Invoice.objects.create(
+            invoice_number='2026-T001-002',
+            trader=self.trader1,
+            year=timezone.now().year,
+            crop=self.crop,
+            packing_method=Invoice.PackingMethod.MACHINE,
+            packing_rate_snapshot=rate.rate_per_kg,
+            created_by=self.accountant
+        )
+
+        # 3. توضيب فعلي 800 كغ
+        session = PackingService.start_packing_session(
+            trader=self.trader1,
+            crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet1],
+            user=self.accountant
+        )
+        outputs_data = [{
+            'size_name': 'Medium',
+            'box_type': self.box_blue,
+            'box_count': 80,
+            'net_weight_kg': Decimal('800.000'),
+            'pallet_count': 1
+        }]
+        PackingService.record_outputs_and_finalize(session, outputs_data, user=self.accountant)
+
+        # 4. مزامنة الفاتورة
+        InvoiceService.sync_invoice_with_operations(invoice, user=self.accountant)
+
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.total_packed_kg, Decimal('800.000'))
+        # أجور التوضيب = 800 × 0.080 = 64.000 د.أ
+        self.assertEqual(invoice.packing_subtotal, Decimal('64.000'))
+
+        # عجز الصناديق الناتج عن استهلاك 80 صندوق عكاز أزرق بسعر 1.500 د.أ = 120.000 د.أ
+        self.assertEqual(invoice.box_discount_subtotal, Decimal('120.000'))
+
+        # الإجمالي النهائي = 64.000 + 120.000 = 184.000 د.أ
+        self.assertEqual(invoice.grand_total, Decimal('184.000'))
+
+        # إعادة المزامنة مرة ثانية لا تكرر الخصم أو تضاعفه (منع الخصم المزدوج)
+        InvoiceService.sync_invoice_with_operations(invoice, user=self.accountant)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.grand_total, Decimal('184.000'))
+
+        # اختبار توليد الـ PDF
+        pdf_buffer = InvoiceService.generate_pdf(invoice)
+        self.assertGreater(len(pdf_buffer.getvalue()), 1000)
+
+    def test_one_pallet_per_output_row_with_own_weight_and_qr(self):
+        """
+        كل سطر ناتج = طبلية موضبة واحدة بوزنها الخاص ورمز QR خاص بها،
+        دون حقل (عدد الطبالي الموضبة)، وحتى لو تكرر المقاس تبقى الرموز فريدة.
+        (عدد الأسطر لا يتجاوز عدد طبالي الاستلام المتاحة في الجلسة)
+        """
+        session = PackingService.start_packing_session(
+            trader=self.trader1,
+            crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet1, self.pallet2],
+            user=self.accountant,
+        )
+        outputs_data = [
+            {'size_name': 'XL', 'box_type': self.box_blue, 'box_count': 10,
+             'net_weight_kg': Decimal('12.345'), 'pallet_count': 1},
+            {'size_name': 'XL', 'box_type': self.box_blue, 'box_count': 8,
+             'net_weight_kg': Decimal('9.876'), 'pallet_count': 1},
+        ]
+        PackingService.record_outputs_and_finalize(session, outputs_data, user=self.accountant)
+
+        packed = list(session.packed_pallets.order_by('id'))
+        self.assertEqual(len(packed), 2)
+        # وزن وعدد صناديق كل طبلية = ما أدخله المشغل لسطرها بالضبط (بلا توزيع)
+        self.assertEqual(packed[0].net_weight_kg, Decimal('12.345'))
+        self.assertEqual(packed[1].net_weight_kg, Decimal('9.876'))
+        self.assertEqual(packed[0].box_count, 10)
+        self.assertEqual(packed[1].box_count, 8)
+        # رموز الطبالي فريدة رغم تطابق المقاس
+        self.assertEqual(len({p.packed_pallet_code for p in packed}), 2)
+
+        # لكل طبلية ملصق QR قابل للطباعة
+        client = Client()
+        client.force_login(self.manager)
+        resp = client.get(reverse('packed_pallet_print_label', args=[packed[0].pk]))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_packing_finalize_view_works_without_pallet_count_field(self):
+        """
+        إرسال نموذج الإنهاء بدون حقل (عدد الطبالي الموضبة) ينجح ويولّد طبلية لكل سطر
+        بوزنه الخاص ونوع صندوقه.
+        """
+        session = PackingService.start_packing_session(
+            trader=self.trader1,
+            crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet1],
+            user=self.accountant,
+        )
+        client = Client()
+        client.force_login(self.accountant)
+        resp = client.post(reverse('packing_finalize', args=[session.pk]), {
+            'size_name[]': ['P1 Standard'],
+            'box_type[]': [str(self.box_blue.id)],
+            'box_count[]': ['20'],
+            'net_weight_kg[]': ['100.000'],
+            'waste_type[]': ['تالف'],
+            'waste_weight[]': ['0.000'],
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(session.packed_pallets.count(), 1)
+        packed = session.packed_pallets.first()
+        self.assertEqual(packed.net_weight_kg, Decimal('100.000'))
+        self.assertEqual(packed.box_count, 20)
+
+    # ==================== خدمة التبريد اليومية للطبالي الموضبة ====================
+
+    def _make_packed_pallet(self):
+        session = PackingService.start_packing_session(
+            trader=self.trader1,
+            crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet1],
+            user=self.accountant,
+        )
+        PackingService.record_outputs_and_finalize(session, [{
+            'size_name': 'XL',
+            'box_type': self.box_blue,
+            'box_count': 10,
+            'net_weight_kg': self.pallet1.estimated_net_weight,
+            'pallet_count': 1,
+        }], user=self.accountant)
+        return session.packed_pallets.first()
+
+    # ==================== السحب والإفلات من خريطة البرادات ====================
+
+    def test_packed_pallet_move_endpoint_updates_shelf(self):
+        """نقل طبلية موضبة عبر سحبها وأفلاتها يستدعي الخدمة ويغيّر سيخها."""
+        pp = self._make_packed_pallet()
+        PackingService.send_packed_pallets_to_cooling(
+            [pp], cold_store=self.cold_store, shelf=self.shelf, user=self.accountant
+        )
+        pp.refresh_from_db()
+        self.assertEqual(pp.shelf, self.shelf)
+
+        shelf2 = Shelf.objects.create(cold_store=self.cold_store, shelf_number='2', capacity_pallets=25)
+        self.client.force_login(self.accountant)
+        url = reverse('packed_pallet_move', args=[pp.pk])
+
+        resp = self.client.post(url, {'shelf': shelf2.pk, 'cold_store': self.cold_store.pk})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['ok'])
+        self.assertTrue(data['moved'])
+        pp.refresh_from_db()
+        self.assertEqual(pp.shelf, shelf2)
+
+        # نفس الموقع: نجاح بلا حركة (لا يقفل ويُفتح فترات تبريد بلا داعي)
+        resp_same = self.client.post(url, {'shelf': shelf2.pk, 'cold_store': self.cold_store.pk})
+        self.assertTrue(resp_same.json()['ok'])
+        self.assertFalse(resp_same.json()['moved'])
+
+        # سجل الحركة بنوع «نقل» مسجّل
+        self.assertTrue(
+            PackedPalletCoolingLog.objects.filter(packed_pallet=pp, movement_type='MOVE').exists()
+        )
+
+    def test_packed_pallet_move_requires_accountant(self):
+        pp = self._make_packed_pallet()
+        PackingService.send_packed_pallets_to_cooling(
+            [pp], cold_store=self.cold_store, shelf=self.shelf, user=self.accountant
+        )
+        viewer = User.objects.create_user(
+            username='drag_viewer', password='pass', role=User.Role.VIEWER
+        )
+        self.client.force_login(viewer)
+        resp = self.client.post(
+            reverse('packed_pallet_move', args=[pp.pk]),
+            {'shelf': self.shelf.pk, 'cold_store': self.cold_store.pk},
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(resp.json()['ok'])
+        pp.refresh_from_db()
+        self.assertEqual(pp.shelf, self.shelf)
+
+    def test_packed_pallet_move_rejects_post_only_and_missing_target(self):
+        pp = self._make_packed_pallet()
+        self.client.force_login(self.accountant)
+        url = reverse('packed_pallet_move', args=[pp.pk])
+
+        self.assertEqual(self.client.get(url).status_code, 405)
+        resp = self.client.post(url, {})
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.json()['ok'])
+
+    def test_packed_pallet_returns_to_cold_store_with_daily_cooling(self):
+        """
+        الطبلية الموضبة تعود إلى براد المشغل، ويُحتسب عدد أيام التبريد وأجرتها اليومية،
+        ثم تُخرَج فيتوقف الاحتساب مع بقاء الأيام المسجلة.
+        """
+        settings_obj = SystemSetting.get_settings()
+        settings_obj.packed_cooling_daily_rate = Decimal('0.500')
+        settings_obj.save()
+
+        pp = self._make_packed_pallet()
+        self.assertEqual(pp.status, PackedPallet.Status.PACKED)
+
+        # إدخال الطبلية الموضبة إلى البراد
+        PackingService.send_packed_pallets_to_cooling(
+            [pp], cold_store=self.cold_store, shelf=self.shelf,
+            user=self.accountant, notes='تبريد موضب جاهز للتصدير',
+        )
+        pp.refresh_from_db()
+        self.assertEqual(pp.status, PackedPallet.Status.IN_COOLING)
+        self.assertEqual(pp.cold_store, self.cold_store)
+        self.assertEqual(pp.shelf, self.shelf)
+        self.assertEqual(pp.cooling_logs.count(), 1)
+        self.assertTrue(pp.location_display.startswith(self.cold_store.name))
+
+        # محاكاة بقاء الطبلية 3 أيام في البراد
+        open_log = pp.cooling_logs.filter(exited_at__isnull=True).first()
+        PackedPalletCoolingLog.objects.filter(pk=open_log.pk).update(
+            entered_at=timezone.now() - timedelta(days=3)
+        )
+        pp.refresh_from_db()
+        self.assertEqual(pp.cooling_days_total, 3)
+        # الأجرة = 3 أيام × 0.500 = 1.500 دينار
+        self.assertEqual(pp.cooling_fee, Decimal('1.500'))
+
+        # إخراج من البراد وإيقاف الاحتساب
+        PackingService.checkout_packed_pallets_from_cooling([pp], user=self.accountant)
+        pp.refresh_from_db()
+        self.assertEqual(pp.status, PackedPallet.Status.PACKED)
+        self.assertIsNone(pp.cold_store)
+        self.assertIsNone(pp.shelf)
+        self.assertEqual(pp.cooling_days_total, 3)
+        self.assertEqual(pp.cooling_fee, Decimal('1.500'))
+
+    def test_invoice_sync_includes_daily_cooling_service(self):
+        """
+        مزامنة الفاتورة تُدرج بند أجرة التبريد اليومية للطبالي الموضبة المرجعة للبراد.
+        """
+        settings_obj = SystemSetting.get_settings()
+        settings_obj.packed_cooling_daily_rate = Decimal('0.500')
+        settings_obj.save()
+
+        pp = self._make_packed_pallet()
+        PackingService.send_packed_pallets_to_cooling(
+            [pp], cold_store=self.cold_store, shelf=self.shelf, user=self.accountant
+        )
+        open_log = pp.cooling_logs.filter(exited_at__isnull=True).first()
+        PackedPalletCoolingLog.objects.filter(pk=open_log.pk).update(
+            entered_at=timezone.now() - timedelta(days=4)
+        )
+
+        invoice = Invoice.objects.create(
+            invoice_number='2026-T001-COOL1',
+            trader=self.trader1,
+            year=timezone.now().year,
+            crop=self.crop,
+            packing_method=Invoice.PackingMethod.MACHINE,
+            packing_rate_snapshot=Decimal('0.000'),
+            created_by=self.accountant,
+        )
+        InvoiceService.sync_invoice_with_operations(invoice, user=self.accountant)
+        invoice.refresh_from_db()
+
+        # أجرة التبريد = 4 أيام × 0.500 = 2.000 دينار
+        self.assertEqual(invoice.cooling_subtotal, Decimal('2.000'))
+        # الإجمالي = أجرة التبريد 2.000 + خصم عجز 10 صناديق × 1.500 = 15.000 => 17.000 دينار
+        self.assertEqual(invoice.grand_total, Decimal('17.000'))
+        cooling_items = invoice.items.filter(item_type=InvoiceItem.ItemType.COOLING)
+        self.assertEqual(cooling_items.count(), 1)
+        self.assertEqual(cooling_items.first().quantity, Decimal('4.000'))
+
+    # ==================== رقابة عدد المقاسات مقابل عدد الطبالي ====================
+
+    def test_output_rows_cannot_exceed_available_pallets(self):
+        """
+        رقابة: لا يجوز أن يتجاوز عدد أسطر نواتج المقاسات (كل سطر = طبلية موضبة واحدة)
+        عدد طبالي الاستلام المتاحة في الجلسة، ويرفض الحفظ بتراجع كامل.
+        """
+        session = PackingService.start_packing_session(
+            trader=self.trader1,
+            crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet1, self.pallet2],
+            user=self.accountant,
+        )
+        self.assertEqual(session.source_pallets.count(), 2)
+
+        over_data = [
+            {'size_name': 'XL', 'box_type': self.box_blue, 'box_count': 10, 'net_weight_kg': Decimal('50.000'), 'pallet_count': 1},
+            {'size_name': 'L', 'box_type': self.box_blue, 'box_count': 10, 'net_weight_kg': Decimal('50.000'), 'pallet_count': 1},
+            {'size_name': 'M', 'box_type': self.box_blue, 'box_count': 10, 'net_weight_kg': Decimal('50.000'), 'pallet_count': 1},
+        ]
+        with self.assertRaises(ValidationError):
+            PackingService.record_outputs_and_finalize(session, over_data, user=self.accountant)
+
+        session.refresh_from_db()
+        self.assertEqual(session.outputs.count(), 0)
+        self.assertEqual(session.packed_pallets.count(), 0)
+        self.assertEqual(session.status, PackingSession.Status.DRAFT)
+
+    def test_output_rows_equal_to_available_pallets_is_allowed(self):
+        """
+        الحد المسموح: عدد الأسطر = عدد الطبالي المتاحة (طبلية موضبة واحدة لكل طبلية استلام).
+        """
+        session = PackingService.start_packing_session(
+            trader=self.trader1,
+            crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet1, self.pallet2],
+            user=self.accountant,
+        )
+        rows = [
+            {'size_name': 'XL', 'box_type': self.box_blue, 'box_count': 10, 'net_weight_kg': Decimal('450.000'), 'pallet_count': 1},
+            {'size_name': 'L', 'box_type': self.box_green, 'box_count': 10, 'net_weight_kg': Decimal('450.000'), 'pallet_count': 1},
+        ]
+        PackingService.record_outputs_and_finalize(session, rows, user=self.accountant)
+
+        session.refresh_from_db()
+        self.assertEqual(session.outputs.count(), 2)
+        self.assertEqual(session.packed_pallets.count(), 2)
+
+    def test_packing_finalize_view_rejects_rows_more_than_pallets(self):
+        """
+        عند إدخال مقاسات أكثر من الطبالي المتاحة لا تُحفظ أي طبلية موضبة وتبقى الجلسة قيد العمل.
+        """
+        session = PackingService.start_packing_session(
+            trader=self.trader1,
+            crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet1, self.pallet2],
+            user=self.accountant,
+        )
+        client = Client()
+        client.force_login(self.accountant)
+        resp = client.post(reverse('packing_finalize', args=[session.pk]), {
+            'size_name[]': ['XL', 'L', 'M'],
+            'box_type[]': [str(self.box_blue.id)] * 3,
+            'box_count[]': ['10', '10', '10'],
+            'net_weight_kg[]': ['50.000', '50.000', '50.000'],
+            'waste_type[]': ['تالف'],
+            'waste_weight[]': ['0.000'],
+        })
+        self.assertEqual(resp.status_code, 302)
+
+        session.refresh_from_db()
+        self.assertEqual(session.outputs.count(), 0)
+        self.assertEqual(session.packed_pallets.count(), 0)
+        self.assertEqual(session.status, PackingSession.Status.DRAFT)
+
+    def test_resubmitting_finalize_cannot_exceed_available_pallets(self):
+        """
+        إعادة الإرسال (مثلاً جلسة بانتظار اعتماد المدير) لا تُنتج طبالي موضبة أكثر من الطبالي المتاحة.
+        """
+        session = PackingService.start_packing_session(
+            trader=self.trader1,
+            crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet1, self.pallet2],
+            user=self.accountant,
+        )
+        first = [
+            {'size_name': 'XL', 'box_type': self.box_blue, 'box_count': 10, 'net_weight_kg': Decimal('100.000'), 'pallet_count': 1},
+            {'size_name': 'L', 'box_type': self.box_blue, 'box_count': 10, 'net_weight_kg': Decimal('100.000'), 'pallet_count': 1},
+        ]
+        PackingService.record_outputs_and_finalize(session, first, user=self.accountant)
+        session.refresh_from_db()
+        self.assertEqual(session.packed_pallets.count(), 2)
+
+        with self.assertRaises(ValidationError):
+            PackingService.record_outputs_and_finalize(session, [
+                {'size_name': 'M', 'box_type': self.box_blue, 'box_count': 5, 'net_weight_kg': Decimal('50.000'), 'pallet_count': 1},
+            ], user=self.accountant)
+
+        session.refresh_from_db()
+        self.assertEqual(session.packed_pallets.count(), 2)
+
+    # ==================== رمز QR ملصق الطبلية الموضبة ====================
+
+    def test_packed_pallet_label_shows_qr_only_and_qr_opens_scan_page(self):
+        """
+        ملصق الطبلية الموضبة يحتوي رمز QR فقط بلا معلومات مكتوبة،
+        والرمز يُشفّر رابط صفحة الطبلية الموضبة التي تعرض بياناتها كاملة.
+        """
+        packed = self._make_packed_pallet()
+        client = Client()
+        client.force_login(self.accountant)
+        resp = client.get(reverse('packed_pallet_print_label', args=[packed.pk]))
+        self.assertEqual(resp.status_code, 200)
+
+        expected_url = f"http://testserver{reverse('packed_pallet_qr_scan', args=[packed.packed_pallet_code])}"
+        self.assertContains(resp, f'data-qr-url="{expected_url}"')
+        self.assertNotContains(resp, 'data-val')
+
+    def test_packed_pallet_qr_scan_page_shows_full_info_without_login(self):
+        """
+        صفحة الطبلية الموضبة تُفتح من الهاتف بلا تسجيل دخول وتعرض بياناتها كاملة
+        مع الطبلية الأصلية والتاجر والموقع وفترات التبريد.
+        """
+        packed = self._make_packed_pallet()
+        public_client = Client()
+        resp = public_client.get(reverse('packed_pallet_qr_scan', args=[packed.packed_pallet_code]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, packed.packed_pallet_code)
+        self.assertContains(resp, packed.original_pallet.pallet_code)
+        self.assertContains(resp, self.trader1.name)
+        self.assertContains(resp, packed.session.session_code)
+
+    def test_packed_pallet_qr_uses_configured_scan_base_url(self):
+        """
+        عند ضبط (عنوان السيرفر لروابط مسح QR) يُشفَّر داخل رمز الملصق
+        ليعمل المسح من هواتف الشبكة المحلية (نظام يعمل دون إنترنت).
+        """
+        self.settings.scan_base_url = 'http://192.168.1.50:8000'
+        self.settings.save()
+        packed = self._make_packed_pallet()
+        client = Client()
+        client.force_login(self.accountant)
+        resp = client.get(reverse('packed_pallet_print_label', args=[packed.pk]))
+
+        expected_url = f"http://192.168.1.50:8000{reverse('packed_pallet_qr_scan', args=[packed.packed_pallet_code])}"
+        self.assertContains(resp, f'data-qr-url="{expected_url}"')
+
+
+class PackagingItemsChargeTests(TestCase):
+    """
+    أصناف التغليف العادية في نواتج التوضيب:
+    - يمكن إضافة أكثر من صنف لناتج واحد، وكل صنف من مجموعة تغليف مختلفة.
+    - تُجمَّد أسعارها وقت الحفظ (لقطة) وتُخصم من التاجر.
+    - تُرحَّل قيمتها إلى فاتورة التاجر بند «خدمات إضافية» مرة واحدة فقط.
+    """
+
+    def setUp(self):
+        from operations.models import PackagingGroup
+        from packing.models import (
+            PackingOutputPackagingItem, PackingSessionPackagingCharge,
+        )
+        self.PackagingGroup = PackagingGroup
+        self.PackingOutputPackagingItem = PackingOutputPackagingItem
+        self.PackingSessionPackagingCharge = PackingSessionPackagingCharge
+
+        self.settings = SystemSetting.get_settings()
+        self.settings.weight_tolerance_pct = Decimal('100.00')  # لا نريد اعتماد مدير هنا
+        self.settings.save()
+
+        self.accountant = User.objects.create_user(
+            username='pkg_acc', password='pass', role=User.Role.ACCOUNTANT
+        )
+        self.trader = Trader.objects.create(code='TP01', name='تاجر التغليف')
+        self.crop = Crop.objects.create(name='خوخ')
+
+        self.group_boxes = PackagingGroup.objects.create(name='الصناديق')
+        self.group_paper = PackagingGroup.objects.create(name='ورق التغليف')
+        self.group_stickers = PackagingGroup.objects.create(name='الستيكرات')
+
+        # الصناديق الأساسية المستخدمة في التوضيب
+        self.box = BoxType.objects.create(
+            name='عكاز أساسي', color_or_type='أزرق', group=self.group_boxes,
+            tare_weight=Decimal('0.800'), discount_price=Decimal('1.500'), company_stock=1000,
+        )
+        # أصناف تغليف عادية من مجموعات مختلفة
+        self.paper = BoxType.objects.create(
+            name='ورق تغليف', color_or_type='أبيض', group=self.group_paper,
+            tare_weight=Decimal('0.001'), discount_price=Decimal('0.080'), company_stock=10000,
+            is_box=False,
+        )
+        self.sticker = BoxType.objects.create(
+            name='ستيكر بلد المنشأ', color_or_type='ملون', group=self.group_stickers,
+            tare_weight=Decimal('0.001'), discount_price=Decimal('0.030'), company_stock=10000,
+            is_box=False,
+        )
+
+        self.cold_store = ColdStore.objects.create(name='براد التغليف', code='CS-PK', capacity_pallets=20)
+        self.shelf = Shelf.objects.create(cold_store=self.cold_store, shelf_number='1', capacity_pallets=10)
+
+        farm_box = FarmBoxType.objects.create(name='صندوق مزرعة للتغليف', tare_weight=Decimal('0.800'))
+        truck = ReceptionService.process_truck_reception({
+            'trader': self.trader.id,
+            'crop': self.crop.id,
+            'box_type': farm_box.id,
+            'box_count': 100,
+            'gross_weight': Decimal('2000.000'),
+            'tare_weight': Decimal('1000.000'),
+            'pallet_count': 2,
+            'cold_store': self.cold_store.id,
+            'shelf': self.shelf.id,
+        }, user=self.accountant)
+        self.pallet = truck.pallets.first()
+
+    def _start_session(self):
+        return PackingService.start_packing_session(
+            trader=self.trader, crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet], user=self.accountant,
+        )
+
+    def test_multiple_packaging_items_from_different_groups_are_recorded(self):
+        session = self._start_session()
+        PackingService.record_outputs_and_finalize(session, [{
+            'size_name': 'XL',
+            'box_type': self.box,
+            'box_count': 80,
+            'net_weight_kg': self.pallet.estimated_net_weight,
+            'pallet_count': 1,
+            'packaging_items': [
+                {'packaging_item': self.paper, 'quantity': Decimal('80')},
+                {'packaging_item': self.sticker, 'quantity': Decimal('80')},
+                {'packaging_item': self.box, 'quantity': Decimal('5')},
+            ],
+        }], user=self.accountant)
+
+        output = session.outputs.first()
+        self.assertEqual(output.packaging_items.count(), 3)
+        groups = set(output.packaging_items.values_list('packaging_group_name', flat=True))
+        self.assertEqual(groups, {'الصناديق', 'ورق التغليف', 'الستيكرات'})
+
+    def test_prices_are_frozen_and_charge_computed(self):
+        session = self._start_session()
+        PackingService.record_outputs_and_finalize(session, [{
+            'size_name': 'XL', 'box_type': self.box, 'box_count': 80,
+            'net_weight_kg': self.pallet.estimated_net_weight, 'pallet_count': 1,
+            'packaging_items': [
+                {'packaging_item': self.paper, 'quantity': Decimal('80')},   # 80 × 0.080 = 6.400
+                {'packaging_item': self.sticker, 'quantity': Decimal('80')},  # 80 × 0.030 = 2.400
+            ],
+        }], user=self.accountant)
+
+        charge = self.PackingSessionPackagingCharge.objects.get(session=session)
+        self.assertEqual(charge.trader, self.trader)
+        self.assertEqual(charge.total_amount, Decimal('8.800'))
+        self.assertFalse(charge.is_posted)
+
+        # تغيير سعر الصنف لاحقاً لا يغيّر اللقطة المجمدة
+        self.paper.discount_price = Decimal('9.999')
+        self.paper.save()
+        session.refresh_from_db()
+        output = session.outputs.first()
+        paper_line = output.packaging_items.get(packaging_item=self.paper)
+        self.assertEqual(paper_line.unit_price_snapshot, Decimal('0.080'))
+        self.assertEqual(paper_line.total_price, Decimal('6.400'))
+        self.assertEqual(PackingService.packaging_charge_total_for_session(session), Decimal('8.800'))
+
+    def test_charge_is_posted_to_trader_invoice_once(self):
+        session = self._start_session()
+        PackingService.record_outputs_and_finalize(session, [{
+            'size_name': 'XL', 'box_type': self.box, 'box_count': 80,
+            'net_weight_kg': self.pallet.estimated_net_weight, 'pallet_count': 1,
+            'packaging_items': [
+                {'packaging_item': self.paper, 'quantity': Decimal('100')},  # 8.000
+            ],
+        }], user=self.accountant)
+
+        invoice = Invoice.objects.create(
+            invoice_number='2026-TP01-001', trader=self.trader, year=2026, crop=self.crop,
+            packing_method=Invoice.PackingMethod.MACHINE,
+            packing_rate_snapshot=Decimal('0.070'), created_by=self.accountant,
+        )
+        InvoiceService.sync_invoice_with_operations(invoice, user=self.accountant)
+        invoice.refresh_from_db()
+
+        packaging_items = invoice.items.filter(item_type=InvoiceItem.ItemType.SERVICE)
+        self.assertEqual(packaging_items.count(), 1)
+        self.assertEqual(packaging_items.first().unit_price, Decimal('8.000'))
+        self.assertEqual(invoice.other_services, Decimal('8.000'))
+        # الإجمالي = أجور التوضيب + خصم عجز الصناديق + أصناف التغليف
+        expected_total = (
+            invoice.packing_subtotal + invoice.box_discount_subtotal + Decimal('8.000')
+        ).quantize(Decimal('0.001'))
+        self.assertEqual(invoice.grand_total, expected_total)
+
+        charge = self.PackingSessionPackagingCharge.objects.get(session=session)
+        self.assertTrue(charge.is_posted)
+        self.assertEqual(charge.posted_invoice_id, invoice.pk)
+
+        # مزامنة ثانية لا تُكرر البند (الترحيل مرة واحدة)
+        invoice.status = Invoice.Status.DRAFT
+        InvoiceService.sync_invoice_with_operations(invoice, user=self.accountant)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.items.filter(item_type=InvoiceItem.ItemType.SERVICE).count(), 1)
+        self.assertEqual(invoice.other_services, Decimal('8.000'))
+
+    def test_packaging_items_do_not_affect_packed_weight_or_randeman(self):
+        session = self._start_session()
+        PackingService.record_outputs_and_finalize(session, [{
+            'size_name': 'XL', 'box_type': self.box, 'box_count': 80,
+            'net_weight_kg': self.pallet.estimated_net_weight, 'pallet_count': 1,
+            'packaging_items': [
+                {'packaging_item': self.paper, 'quantity': Decimal('80')},
+            ],
+        }], user=self.accountant)
+        session.refresh_from_db()
+        # الوزن الموضب = وزن الناتج فقط، ولا تدخل أوزان أصناف التغليف في الرندمان
+        self.assertEqual(session.output_packed_kg, self.pallet.estimated_net_weight)
+
+    def test_zero_quantity_packaging_items_are_ignored(self):
+        session = self._start_session()
+        PackingService.record_outputs_and_finalize(session, [{
+            'size_name': 'XL', 'box_type': self.box, 'box_count': 80,
+            'net_weight_kg': self.pallet.estimated_net_weight, 'pallet_count': 1,
+            'packaging_items': [
+                {'packaging_item': self.paper, 'quantity': Decimal('0')},
+            ],
+        }], user=self.accountant)
+        self.assertFalse(self.PackingSessionPackagingCharge.objects.filter(session=session).exists())
+
+    def test_packing_detail_page_shows_packaging_picker(self):
+        session = self._start_session()
+        self.client.force_login(self.accountant)
+        resp = self.client.get(reverse('packing_detail', args=[session.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'pkgItemTemplate')
+        self.assertContains(resp, 'أصناف التغليف المستخدمة في هذا المقاس')
+
+

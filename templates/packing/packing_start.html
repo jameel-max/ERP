@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}بدء جلسة توضيب جديدة | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="row justify-content-center">
+        <div class="col-md-9">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-royal py-3">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-box-arrow-up-right me-2"></i> بدء عملية توضيب جديدة وإخراج الطبالي من البراد</h5>
+                </div>
+                <div class="card-body p-4 bg-white">
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">التاجر *</label>
+                                {{ form.trader }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">نوع البضاعة *</label>
+                                {{ form.crop }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">طريقة التوضيب المعتمدة *</label>
+                                {{ form.packing_method }}
+                                <small class="text-muted">مكينة أو يدوي (عاملات)</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">اسم الورشة أو خط التشغيل</label>
+                                {{ form.workshop_name }}
+                                <small class="text-muted">مثال: ورشة التوضيب / خط الإنتاج 1</small>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold text-success">
+                                    <i class="bi bi-snow2 me-1"></i> اختر الطبالي الموجودة في البراد لإخراجها للتوضيب *
+                                </label>
+                                {{ form.source_pallets }}
+                                <small class="text-muted">اضغط زر Ctrl لاختيار أكثر من طبلية معاً. سيتم تحديث حالة الطبالي المختارة فوراً إلى "خرجت للتوضيب".</small>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">ملاحظات وتعليمات التوضيب</label>
+                                {{ form.notes }}
+                            </div>
+                        </div>
+
+                        <hr class="my-4">
+                        <div class="d-flex justify-content-between">
+                            <a href="{% url 'packing_list' %}" class="btn btn-outline-secondary">إلغاء</a>
+                            <button type="submit" class="btn btn-royal px-4">
+                                <i class="bi bi-play-circle-fill me-1"></i> إخراج الطبالي وبدء التوضيب
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% load attachments_tags %}
+
+{% block title %}{{ title }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-10">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-royal py-3">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-globe2 me-2"></i> {{ title }}</h5>
+                </div>
+                <div class="card-body p-4 bg-white">
+                    {% if form.non_field_errors %}
+                    <div class="alert alert-danger border-0">
+                        {% for err in form.non_field_errors %}<div>{{ err }}</div>{% endfor %}
+                    </div>
+                    {% endif %}
+                    <form method="post" novalidate enctype="multipart/form-data">
+                        {% csrf_token %}
+
+                        <h6 class="fw-bold text-success border-bottom pb-2 mb-3">1. بيانات الشحنة الأساسية</h6>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">نوع الشحنة <span class="text-danger">*</span></label>
+                                {{ form.direction }}
+                                {% if form.direction.errors %}<div class="text-danger small">{{ form.direction.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">المورد / العميل <span class="text-danger">*</span></label>
+                                {{ form.counterparty_name }}
+                                {% if form.counterparty_name.errors %}<div class="text-danger small">{{ form.counterparty_name.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">بلد المورد / العميل</label>
+                                {{ form.counterparty_country }}
+                            </div>
+                            <div class="col-md-8">
+                                <label class="form-label fw-bold">وصف البضاعة <span class="text-danger">*</span></label>
+                                {{ form.goods_description }}
+                                {% if form.goods_description.errors %}<div class="text-danger small">{{ form.goods_description.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">نوع البضاعة (من النظام)</label>
+                                {{ form.crop }}
+                                <small class="text-muted d-block mt-1">اختياري — للربط مع منتجات المشغل.</small>
+                            </div>
+                        </div>
+
+                        <h6 class="fw-bold text-success border-bottom pb-2 mb-3 mt-4">2. الكمية والسعر والتكلفة</h6>
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">الكمية <span class="text-danger">*</span></label>
+                                {{ form.quantity }}
+                                {% if form.quantity.errors %}<div class="text-danger small">{{ form.quantity.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">وحدة الكمية</label>
+                                {{ form.quantity_unit }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">سعر الوحدة <span class="text-danger">*</span></label>
+                                {{ form.unit_price }}
+                                {% if form.unit_price.errors %}<div class="text-danger small">{{ form.unit_price.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">العملة</label>
+                                {{ form.currency }}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">سعر الصرف مقابل الدينار</label>
+                                {{ form.exchange_rate }}
+                                <small class="text-muted d-block mt-1">1 وحدة من العملة = كم دينار أردني. (1 للدينار)</small>
+                                {% if form.exchange_rate.errors %}<div class="text-danger small">{{ form.exchange_rate.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">قيمة البيع النهائية (د.أ) — اختياري</label>
+                                {{ form.sale_value }}
+                                <small class="text-muted d-block mt-1">لحساب الربح. لشحنات التصدير تُعتبر قيمة البضاعة هي البيع إن تركت صفراً.</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold d-block">قيمة البضاعة المحسوبة</label>
+                                <div class="alert alert-light border mb-0 py-2 text-center">
+                                    <span class="fw-bold text-primary fs-5" id="goodsValuePreview">0.000</span>
+                                    <span class="small text-muted">د.أ</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h6 class="fw-bold text-success border-bottom pb-2 mb-3 mt-4">3. المسار والتواريخ</h6>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">من أين (المنشأ)</label>
+                                {{ form.origin }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">إلى أين (الوجهة)</label>
+                                {{ form.destination }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">تاريخ الطلب</label>
+                                {{ form.order_date }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">تاريخ الشحن / المغادرة</label>
+                                {{ form.departure_date }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">الوصول المتوقع</label>
+                                {{ form.eta_date }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">الوصول الفعلي</label>
+                                {{ form.arrival_date }}
+                            </div>
+                        </div>
+
+                        <h6 class="fw-bold text-success border-bottom pb-2 mb-3 mt-4">4. مطابقة الكميات والحالة</h6>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">الكمية الواصلة</label>
+                                {{ form.received_quantity }}
+                                {% if form.received_quantity.errors %}<div class="text-danger small">{{ form.received_quantity.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">الكمية التالفة</label>
+                                {{ form.damaged_quantity }}
+                                {% if form.damaged_quantity.errors %}<div class="text-danger small">{{ form.damaged_quantity.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">حالة الشحنة</label>
+                                {{ form.status }}
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">ملاحظات</label>
+                                {{ form.notes }}
+                            </div>
+                        </div>
+
+                        <h6 class="fw-bold text-success border-bottom pb-2 mb-3 mt-4">5. صور الشحنة (اختياري — يمكن اختيار أكثر من صورة)</h6>
+                        <div class="row g-3">
+                            <div class="col-md-8">
+                                <label class="form-label fw-bold">صور الشحنة (البضاعة، الفاتورة، الأوراق...)</label>
+                                <input type="file" name="images" class="form-control" accept="image/*" multiple>
+                                <small class="text-muted">حدّد عدة صور معاً إن أردت (JPG/PNG/WEBP/GIF، وحتى 8 ميجابايت للصورة).</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">وصف الصور (اختياري)</label>
+                                <input type="text" name="attachment_caption" class="form-control" maxlength="200" placeholder="مثال: صورة الفاتورة التجارية">
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between mt-4">
+                            {% if shipment %}
+                            <a href="{% url 'trade_shipment_detail' shipment.pk %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-right me-1"></i> رجوع</a>
+                            {% else %}
+                            <a href="{% url 'trade_shipment_list' %}" class="btn btn-outline-secondary"><i class="bi bi-arrow-right me-1"></i> رجوع للقائمة</a>
+                            {% endif %}
+                            <button type="submit" class="btn btn-royal px-4"><i class="bi bi-check2-circle me-1"></i> حفظ الشحنة</button>
+                        </div>
+                    </form>
+                    {% if shipment %}
+                    <div class="mt-4">
+                        {% attachments shipment %}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    var q = document.getElementById('id_quantity');
+    var p = document.getElementById('id_unit_price');
+    var r = document.getElementById('id_exchange_rate');
+    var out = document.getElementById('goodsValuePreview');
+    function fmt(n) {
+        var parts = n.toFixed(3).split('.');
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        return parts.join('.');
+    }
+    function refresh() {
+        if (!out) return;
+        var val = (parseFloat(q && q.value) || 0) * (parseFloat(p && p.value) || 0) * (parseFloat(r && r.value) || 0);
+        out.textContent = fmt(val);
+    }
+    [q, p, r].forEach(function (el) { if (el) { el.addEventListener('input', refresh); } });
+    refresh();
+})();
+</script>
+{% endblock %}

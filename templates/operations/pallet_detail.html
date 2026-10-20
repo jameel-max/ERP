@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% load attachments_tags %}
+
+{% block title %}تفاصيل الطبلية: {{ pallet.pallet_code }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4">
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body p-4 bg-white">
+            <div class="d-flex flex-wrap justify-content-between align-items-center">
+                <div>
+                    <div class="d-flex align-items-center gap-2">
+                        <h2 class="fw-bold mb-0 text-dark">{{ pallet.pallet_code }}</h2>
+                        <span class="badge bg-primary fs-6">{{ pallet.get_status_display }}</span>
+                    </div>
+                    <div class="text-muted small mt-1">
+                        رمز GS1 SSCC: <code>{{ pallet.sscc_code }}</code> &bull;
+                        التاجر: <a href="{% url 'trader_detail' pallet.trader.pk %}" class="fw-bold text-success text-decoration-none">{{ pallet.trader.name }}</a> &bull;
+                        الدفعة: <a href="{% url 'truck_detail' pallet.truck_receipt.pk %}" class="text-dark text-decoration-none">{{ pallet.truck_receipt.lot_number }}</a>
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap gap-2 mt-3 mt-md-0">
+                    <a href="{% url 'pallet_print_label' pallet.pk %}" target="_blank" class="btn btn-royal">
+                        <i class="bi bi-printer me-1"></i> طباعة ملصق الطبلية
+                    </a>
+                    {% include "core/_delete_button.html" with app_label="operations" model_name="pallet" object_id=pallet.pk btn_class="btn-outline-danger" title="حذف الطبلية بشكل منفرد" show_text=True %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <!-- بيانات الطبلية والـ QR -->
+        <div class="col-lg-5">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-qr-code text-success me-2"></i> رمز الاستجابة السريعة (QR Code)</h5>
+                </div>
+                <div class="card-body p-4 text-center">
+                    <img src="{{ qr_image_b64 }}" alt="QR Code" class="img-fluid border p-2 rounded shadow-sm mb-3" style="max-width: 220px;">
+                    <div class="text-muted small mb-3">عند مسح هذا الرمز بكاميرا الهاتف أو قارئ الباركود تظهر بيانات الطبلية فوراً</div>
+                    <a href="{% url 'pallet_qr_scan' pallet.pallet_code %}" class="btn btn-outline-success btn-sm" target="_blank">
+                        <i class="bi bi-box-arrow-up-right me-1"></i> معاينة شاشة مسح الـ QR
+                    </a>
+                </div>
+            </div>
+
+            <!-- نموذج نقل الطبلية بين البرادات أو الأسياخ -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-arrow-left-right text-primary me-2"></i> نقل الطبلية وتحديث الموقع</h5>
+                </div>
+                <div class="card-body p-4 bg-white">
+                    <form method="post" action="{% url 'pallet_transfer' pallet.pk %}">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">البراد المستهدف</label>
+                            {{ transfer_form.to_cold_store }}
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">السيخ / الرف المستهدف</label>
+                            {{ transfer_form.to_shelf }}
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">سبب النقل / ملاحظات</label>
+                            {{ transfer_form.reason }}
+                        </div>
+                        <button type="submit" class="btn btn-royal w-100">
+                            <i class="bi bi-arrow-left-right me-1"></i> تنفيذ النقل وتوثيق الحركة
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- تفاصيل الطبلية وسجل حركاتها -->
+        <div class="col-lg-7">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-info-circle text-success me-2"></i> مواصفات الطبلية والموقع الحالي</h5>
+                </div>
+                <div class="card-body p-4">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="bg-light p-3 rounded border">
+                                <div class="text-muted small">نوع البضاعة</div>
+                                <div class="fs-5 fw-bold text-dark">{{ pallet.crop.name }}</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="bg-light p-3 rounded border">
+                                <div class="text-muted small">نوع الصناديق وعددها</div>
+                                <div class="fs-5 fw-bold text-dark">{{ pallet.box_count }} صندوق <small class="text-muted fs-6">({{ pallet.box_type.name }})</small></div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="bg-light p-3 rounded border">
+                                <div class="text-muted small">الوزن الصافي التقديري</div>
+                                <div class="fs-5 fw-bold text-success">{{ pallet.estimated_net_weight }} كغ</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="bg-light p-3 rounded border">
+                                <div class="text-muted small">الموقع الحالي</div>
+                                <div class="fs-5 fw-bold text-primary">
+                                    {{ pallet.cold_store.name }} {% if pallet.shelf %}– السيخ {{ pallet.shelf.shelf_number }}{% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="bg-light p-3 rounded border">
+                                <div class="text-muted small">درجة الحرارة المسجلة</div>
+                                <div class="fs-5 fw-bold text-dark">
+                                    {% if pallet.temperature is not None %}{{ pallet.temperature }}°C{% else %}غير مسجلة{% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="bg-light p-3 rounded border">
+                                <div class="text-muted small">أيام البقاء بالبراد (FIFO)</div>
+                                <div class="fs-5 fw-bold text-dark">{{ pallet.days_in_cooling }} يوم</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- سجل حركات الطبلية الموثقة -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-clock-history text-secondary me-2"></i> سجل حركات الطبلية الموثقة</h5>
+                </div>
+                <div class="card-body p-3">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover align-middle mb-0 small">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>الوقت</th>
+                                    <th>نوع الحركة</th>
+                                    <th>من موقع</th>
+                                    <th>إلى موقع</th>
+                                    <th>المستخدم</th>
+                                    <th>ملاحظات</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for m in movements %}
+                                <tr>
+                                    <td>{{ m.timestamp|date:"Y-m-d H:i" }}</td>
+                                    <td><span class="badge bg-secondary">{{ m.movement_type }}</span></td>
+                                    <td>{% if m.from_cold_store %}{{ m.from_cold_store.name }} {% if m.from_shelf %}(سيخ {{ m.from_shelf.shelf_number }}){% endif %}{% else %}-{% endif %}</td>
+                                    <td>{% if m.to_cold_store %}{{ m.to_cold_store.name }} {% if m.to_shelf %}(سيخ {{ m.to_shelf.shelf_number }}){% endif %}{% else %}-{% endif %}</td>
+                                    <td>{{ m.moved_by.username|default:"نظام" }}</td>
+                                    <td>{{ m.notes|default:"-" }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6" class="text-center py-3 text-muted">لا توجد حركات سابقة مسجلة.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% attachments pallet %}
+</div>
+{% endblock %}

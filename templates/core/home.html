@@ -1,0 +1,352 @@
+{% extends "base.html" %}
+{% load l10n %}
+
+{% block title %}لوحة التحكم | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4">
+
+    <!-- شريط الترحيب والروابط السريعة -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h2 class="fw-bold mb-1" style="color: var(--rf-primary);">
+                <i class="bi bi-grid-1x2-fill me-2"></i> لوحة تحكم المشغل - {{ company_name_en }}
+            </h2>
+            <p class="text-muted mb-0">نظام إدارة البضاعة، البرادات، التوضيب، وحسابات التجار</p>
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-2 mt-md-0">
+            <a href="{% url 'truck_create' %}" class="btn btn-royal">
+                <i class="bi bi-plus-circle me-1"></i> وصول سيارة جديدة
+            </a>
+            <a href="{% url 'trader_create' %}" class="btn btn-outline-royal">
+                <i class="bi bi-person-plus me-1"></i> إضافة تاجر
+            </a>
+            <a href="{% url 'invoice_create' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-receipt me-1"></i> إنشاء فاتورة
+            </a>
+            <a href="{% url 'cold_store_list' %}" class="btn btn-outline-info">
+                <i class="bi bi-snow2 me-1"></i> خريطة البرادات
+            </a>
+        </div>
+    </div>
+
+    <!-- تنبيهات جرس الإشعارات العاجلة -->
+    {% if unread_notifications_count > 0 %}
+    <div class="alert alert-warning border-0 shadow-sm mb-4">
+        <div class="d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center">
+                <i class="bi bi-bell-fill fs-3 text-warning me-3"></i>
+                <div>
+                    <h5 class="alert-heading fw-bold mb-1">يوجد {{ unread_notifications_count }} إشعار وحقول ناقصة تتطلب الإكمال</h5>
+                    <p class="mb-0 small text-dark opacity-75">انقر على زر "تعديل وإكمال" لمعالجة الحقول غير الحرجة فوراً دون تعطيل سير العمل.</p>
+                </div>
+            </div>
+            <a href="{% url 'notifications' %}" class="btn btn-warning btn-sm fw-bold px-3">عرض جميع الإشعارات</a>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- تنبيهات FIFO الأقدم أولاً -->
+    {% if fifo_alerts %}
+    <div class="alert alert-danger border-0 shadow-sm mb-4">
+        <h5 class="alert-heading fw-bold mb-2"><i class="bi bi-clock-history me-2"></i> تنبيه نظام FIFO (الأقدم أولاً): طبالي تجاوزت فترة التخزين المعتمدة</h5>
+        <div class="d-flex flex-wrap gap-2">
+            {% for p in fifo_alerts %}
+            <span class="badge bg-danger p-2">
+                الطبلية {{ p.pallet_code }} - التاجر: {{ p.trader.name }} ({{ p.days_in_cooling }} يوم في {{ p.cold_store.name }})
+            </span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- بطاقات الملخص السريع (5 مؤشرات أساسية) -->
+    <div class="row g-3 mb-4">
+        <!-- 1. سيارات اليوم -->
+        <div class="col-sm-6 col-lg">
+            <div class="card h-100 bg-white border-start border-4 border-success">
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted fw-bold small text-uppercase">سيارات اليوم</span>
+                            <h2 class="fw-bold my-1 text-success">{{ today_trucks_count }}</h2>
+                            <small class="text-muted"><i class="bi bi-calendar-event me-1"></i> استلام بضاعة</small>
+                        </div>
+                        <div class="p-3 bg-success-subtle text-success rounded-circle">
+                            <i class="bi bi-truck fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. بضاعة بالبرادات -->
+        <div class="col-sm-6 col-lg">
+            <div class="card h-100 bg-white border-start border-4 border-primary">
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted fw-bold small text-uppercase">بضاعة بالبرادات</span>
+                            <h2 class="fw-bold my-1 text-primary">{{ cooling_pallets_count }} <span class="fs-6 fw-normal text-muted">طبلية</span></h2>
+                            <small class="text-muted">{{ cooling_boxes_count }} صندوق ({{ cooling_net_weight }} كغ)</small>
+                        </div>
+                        <div class="p-3 bg-primary-subtle text-primary rounded-circle">
+                            <i class="bi bi-snow2 fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. طبالي قيد التوضيب -->
+        <div class="col-sm-6 col-lg">
+            <div class="card h-100 bg-white border-start border-4 border-warning">
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted fw-bold small text-uppercase">قيد التوضيب</span>
+                            <h2 class="fw-bold my-1 text-warning">{{ packing_pallets_count }} <span class="fs-6 fw-normal text-muted">طبلية</span></h2>
+                            <small class="text-muted"><i class="bi bi-gear-wide-connected me-1"></i> خطوط الإنتاج</small>
+                        </div>
+                        <div class="p-3 bg-warning-subtle text-warning rounded-circle">
+                            <i class="bi bi-box-seam fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. رصيد الصناديق الفارغة -->
+        <div class="col-sm-6 col-lg">
+            <div class="card h-100 bg-white border-start border-4 border-info">
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted fw-bold small text-uppercase">مخزون الصناديق</span>
+                            <h2 class="fw-bold my-1 text-info">{{ total_crates_stock }} <span class="fs-6 fw-normal text-muted">صندوق</span></h2>
+                            <small class="text-muted"><i class="bi bi-boxes me-1"></i> في عهدة المشغل</small>
+                        </div>
+                        <div class="p-3 bg-info-subtle text-info rounded-circle">
+                            <i class="bi bi-inboxes fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 5. عدد التجار النشطين -->
+        <div class="col-sm-6 col-lg">
+            <div class="card h-100 bg-white border-start border-4 border-dark">
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted fw-bold small text-uppercase">التجار المسجلون</span>
+                            <h2 class="fw-bold my-1 text-dark">{{ traders_count }}</h2>
+                            <small class="text-muted"><i class="bi bi-person-lines-fill me-1"></i> مزارع وتاجر</small>
+                        </div>
+                        <div class="p-3 bg-dark-subtle text-dark rounded-circle">
+                            <i class="bi bi-people-fill fs-3"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- الروابط السريعة (البند 1) -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom py-3">
+            <span class="fs-5 fw-bold text-dark"><i class="bi bi-lightning-charge-fill me-2 text-warning"></i> روابط سريعة</span>
+        </div>
+        <div class="card-body p-3">
+            <div class="row g-2">
+                <div class="col-6 col-md-3 col-xl">
+                    <a href="{% url 'trader_list' %}" class="btn btn-outline-royal w-100 py-3">
+                        <i class="bi bi-people-fill fs-4 d-block mb-1"></i> التجار
+                    </a>
+                </div>
+                <div class="col-6 col-md-3 col-xl">
+                    <a href="{% url 'invoice_list' %}" class="btn btn-outline-royal w-100 py-3">
+                        <i class="bi bi-receipt fs-4 d-block mb-1"></i> الفواتير
+                    </a>
+                </div>
+                <div class="col-6 col-md-3 col-xl">
+                    <a href="{% url 'cold_store_list' %}" class="btn btn-outline-royal w-100 py-3">
+                        <i class="bi bi-snow2 fs-4 d-block mb-1"></i> البرادات
+                    </a>
+                </div>
+                <div class="col-6 col-md-3 col-xl">
+                    <a href="{% url 'packing_list' %}" class="btn btn-outline-royal w-100 py-3">
+                        <i class="bi bi-gear-wide-connected fs-4 d-block mb-1"></i> التوضيب
+                    </a>
+                </div>
+                <div class="col-6 col-md-3 col-xl">
+                    <a href="{% url 'workshop_list' %}" class="btn btn-outline-royal w-100 py-3">
+                        <i class="bi bi-tools fs-4 d-block mb-1"></i> الورش
+                    </a>
+                </div>
+                <div class="col-6 col-md-3 col-xl">
+                    <a href="{% url 'boxes_dashboard' %}" class="btn btn-outline-royal w-100 py-3">
+                        <i class="bi bi-inboxes fs-4 d-block mb-1"></i> جرد الصناديق
+                    </a>
+                </div>
+                <div class="col-6 col-md-3 col-xl">
+                    <a href="{% url 'box_type_list' %}" class="btn btn-outline-royal w-100 py-3">
+                        <i class="bi bi-boxes fs-4 d-block mb-1"></i> أنواع الصناديق
+                    </a>
+                </div>
+                <div class="col-6 col-md-3 col-xl">
+                    <a href="{% url 'empty_box_delivery_list' %}" class="btn btn-outline-royal w-100 py-3">
+                        <i class="bi bi-box-arrow-up-left fs-4 d-block mb-1"></i> تسليم الفارغ
+                    </a>
+                </div>
+                <div class="col-6 col-md-3 col-xl">
+                    <a href="{% url 'treasury_dashboard' %}" class="btn btn-outline-royal w-100 py-3">
+                        <i class="bi bi-safe fs-4 d-block mb-1"></i> المالية
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- قسم البرادات وإشغالها الفعلي -->
+    <div class="row g-3 mb-4">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header card-header-royal d-flex justify-content-between align-items-center py-3">
+                    <span class="fs-5 fw-bold"><i class="bi bi-snow me-2"></i> حالة وإشغال البرادات الحالية</span>
+                    <a href="{% url 'cold_store_list' %}" class="btn btn-light btn-sm fw-bold">عرض تفصيلي مع الأسياخ</a>
+                </div>
+                <div class="card-body p-4">
+                    <div class="row g-4">
+                        {% for store in cold_stores %}
+                        <div class="col-md-6">
+                            <div class="border rounded p-3 bg-light">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <h5 class="fw-bold text-dark mb-0">
+                                        <i class="bi bi-building me-1 text-success"></i> {{ store.name }}
+                                        <span class="badge bg-secondary ms-2">{{ store.code }}</span>
+                                    </h5>
+                                    <div>
+                                        {% if store.current_temperature is not None %}
+                                        <span class="badge bg-info text-dark fs-6">{{ store.current_temperature }}°C</span>
+                                        {% else %}
+                                        <span class="badge bg-light text-muted border">الحرارة غير مسجلة</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div class="mb-2">
+                                    <div class="d-flex justify-content-between small text-muted mb-1">
+                                        <span>إشغال الطبالي: <strong>{{ store.occupied_pallets }}</strong> طبلية</span>
+                                        <span>السعة المعتمدة: <strong>{% if store.capacity_pallets %}{{ store.capacity_pallets }} طبلية{% else %}غير محددة{% endif %}</strong></span>
+                                    </div>
+                                    <div class="progress" style="height: 12px;">
+                                        {% with rate=store.occupancy_rate %}
+                                        <div class="progress-bar {% if rate and rate > 90 %}bg-danger{% elif rate and rate > 75 %}bg-warning{% else %}bg-success{% endif %}"
+                                             role="progressbar"
+                                             style="width: {{ rate|default:0|unlocalize }}%;">
+                                        </div>
+                                        {% endwith %}
+                                    </div>
+                                    <div class="text-end small mt-1 text-muted">
+                                        النسبة: {% if store.occupancy_rate %}{{ store.occupancy_rate }}%{% else %}قيد التحديد في الإعدادات{% endif %}
+                                    </div>
+                                </div>
+                                <!-- أسياخ هذا البراد -->
+                                <div class="row g-2 mt-2">
+                                    {% for shelf in store.shelves.all %}
+                                    <div class="col-6">
+                                        <div class="bg-white p-2 rounded border small">
+                                            <div class="d-flex justify-content-between fw-bold">
+                                                <span>السيخ {{ shelf.shelf_number }}</span>
+                                                <span class="badge bg-light text-dark border">{{ shelf.occupied_pallets }} طبلية</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- أحدث السيارات المستلمة -->
+    <div class="row g-3">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-3">
+                    <span class="fs-5 fw-bold text-dark"><i class="bi bi-truck me-2 text-success"></i> أحدث السيارات المستلمة (الوصول)</span>
+                    <a href="{% url 'truck_list' %}" class="btn btn-outline-royal btn-sm">عرض جميع السيارات</a>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>رقم الدفعة (Lot)</th>
+                                <th>تاريخ القدوم</th>
+                                <th>التاجر</th>
+                                <th>البضاعة</th>
+                                <th>الصناديق</th>
+                                <th>الطبالي</th>
+                                <th>الصافي الظاهر</th>
+                                <th>الصافي المحسوب</th>
+                                <th>الموقع المولد</th>
+                                <th>الحالة</th>
+                                <th>إجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for truck in recent_trucks %}
+                            <tr>
+                                <td class="fw-bold"><a href="{% url 'truck_detail' truck.pk %}" class="text-success text-decoration-none">{{ truck.lot_number }}</a></td>
+                                <td>{{ truck.arrival_date }}</td>
+                                <td class="fw-bold">{{ truck.trader.name }}</td>
+                                <td><span class="badge bg-light text-dark border">{{ truck.crop.name }}</span></td>
+                                <td>{{ truck.box_count }} ({{ truck.box_type.name }})</td>
+                                <td>
+                                    {% if truck.pallet_count %}
+                                    <span class="badge bg-secondary">{{ truck.pallet_count }}</span>
+                                    {% endif %}
+                                    {% if not truck.on_pallets %}
+                                    <span class="badge bg-info text-dark border" title="بضاعة بكمات: لا يُخصم وزن الطبالي">بكمات</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ truck.apparent_net_weight }} كغ</td>
+                                <td class="fw-bold text-success">{{ truck.calculated_net_weight }} كغ</td>
+                                <td><small class="text-muted">{{ truck.auto_description|default:truck.cold_store.name }}</small></td>
+                                <td>
+                                    <span class="badge bg-primary">{{ truck.get_status_display }}</span>
+                                    {% if truck.missing_fields_summary %}
+                                    <span class="badge bg-warning text-dark" title="حقول ناقصة: {{ truck.missing_fields_summary }}"><i class="bi bi-exclamation-triangle"></i> ناقص</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{% url 'truck_detail' truck.pk %}" class="btn btn-outline-secondary" title="عرض التفاصيل"><i class="bi bi-eye"></i></a>
+                                        <a href="{% url 'truck_edit' truck.pk %}" class="btn btn-outline-primary" title="تعديل"><i class="bi bi-pencil"></i></a>
+                                        <a href="{% url 'truck_print_all_labels' truck.pk %}" class="btn btn-outline-success" target="_blank" title="طباعة ملصقات الطبالي"><i class="bi bi-printer"></i></a>
+                                        {% include "core/_delete_button.html" with app_label="operations" model_name="truckreceipt" object_id=truck.pk title="حذف السيارة بشكل منفرد" %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="11" class="text-center py-4 text-muted">
+                                    <i class="bi bi-inbox fs-2 d-block mb-2"></i>
+                                    لا توجد سيارات مسجلة بعد. يمكنك <a href="{% url 'truck_create' %}" class="text-success fw-bold">استلام أول سيارة الآن</a>.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

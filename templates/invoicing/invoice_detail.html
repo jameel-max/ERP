@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% load attachments_tags %}
+
+{% block title %}الفاتورة {{ invoice.invoice_number }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+
+    <!-- رأس الفاتورة -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body p-4 bg-white">
+            <div class="d-flex flex-wrap justify-content-between align-items-center">
+                <div>
+                    <div class="d-flex align-items-center gap-2">
+                        <h2 class="fw-bold mb-0 text-dark">{{ invoice.invoice_number }}</h2>
+                        {% if invoice.status == 'APPROVED' %}
+                        <span class="badge bg-success fs-6"><i class="bi bi-patch-check-fill me-1"></i> معتمدة</span>
+                        {% elif invoice.status == 'PAID' %}
+                        <span class="badge bg-primary fs-6"><i class="bi bi-cash-stack me-1"></i> مسددة</span>
+                        {% else %}
+                        <span class="badge bg-warning text-dark fs-6">مسودة</span>
+                        {% endif %}
+                    </div>
+                    <div class="text-muted small mt-1">
+                        التاجر: <a href="{% url 'trader_detail' invoice.trader.pk %}" class="fw-bold text-success text-decoration-none">{{ invoice.trader.name }}</a> &bull;
+                        نوع البضاعة: <strong>{{ invoice.crop.name }}</strong> &bull;
+                        السنة المالية: <strong>{{ invoice.year }}</strong> &bull;
+                        تاريخ الإنشاء: {{ invoice.created_at|date:"Y-m-d H:i" }}
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap gap-2 mt-3 mt-md-0">
+                    {% if invoice.status == 'DRAFT' and user.is_accountant %}
+                    <a href="{% url 'invoice_sync' invoice.pk %}" class="btn btn-outline-success">
+                        <i class="bi bi-arrow-repeat me-1"></i> مزامنة مع التوضيب والصناديق
+                    </a>
+                    {% endif %}
+                    {% if invoice.status == 'DRAFT' and user.is_manager %}
+                    <a href="{% url 'invoice_approve' invoice.pk %}" class="btn btn-success" onclick="return confirm('هل أنت متأكد من اعتماد الفاتورة؟ لن يمكن تعديلها بعد الاعتماد.');">
+                        <i class="bi bi-check-circle me-1"></i> اعتماد الفاتورة نهائياً
+                    </a>
+                    {% endif %}
+                    <a href="{% url 'invoice_pdf' invoice.pk %}" class="btn btn-royal" target="_blank">
+                        <i class="bi bi-file-earmark-pdf-fill me-1"></i> تحميل / طباعة PDF
+                    </a>
+                    {% include "core/_delete_button.html" with app_label="invoicing" model_name="invoice" object_id=invoice.pk btn_class="btn-outline-danger" title="حذف الفاتورة بشكل منفرد" show_text=True %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <!-- بنود الفاتورة التفصيلية والحساب المالي -->
+        <div class="col-lg-7">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-receipt-cutoff text-success me-2"></i> بنود الفاتورة التفصيلية (الأسعار المجمدة)</h5>
+                </div>
+                <div class="card-body p-4">
+                    {% if invoice.items.exists %}
+                    <div class="table-responsive mb-4">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light small">
+                                <tr>
+                                    <th>البيان</th>
+                                    <th>الكمية / الوزن</th>
+                                    <th>سعر الوحدة</th>
+                                    <th>الإجمالي</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in invoice.items.all %}
+                                <tr>
+                                    <td>
+                                        <div class="fw-bold">{{ item.description }}</div>
+                                        <small class="text-muted">{{ item.get_item_type_display }}</small>
+                                    </td>
+                                    <td>{{ item.quantity }}</td>
+                                    <td>{{ item.unit_price }} د.أ</td>
+                                    <td class="fw-bold text-dark">{{ item.total_price }} د.أ</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+
+                    <table class="table table-bordered align-middle">
+                        <tbody>
+                            <tr>
+                                <th class="bg-light" style="width: 45%;">طريقة التوضيب المتفق عليها</th>
+                                <td class="fw-bold">{{ invoice.get_packing_method_display }}</td>
+                            </tr>
+                            <tr>
+                                <th class="bg-light">سعر الكيلو الموضب المجمد</th>
+                                <td class="fw-bold text-success">{{ invoice.packing_rate_snapshot }} دينار / كغ</td>
+                            </tr>
+                            <tr>
+                                <th class="bg-light">إجمالي الوزن المستلم من السيارات المرتبطة</th>
+                                <td>{{ total_received_net }} كغ</td>
+                            </tr>
+                            <tr>
+                                <th class="bg-light">إجمالي الوزن الموضب فعلاً</th>
+                                <td class="fw-bold">{{ invoice.total_packed_kg }} كغ</td>
+                            </tr>
+                            <tr>
+                                <th class="bg-light">أجور التوضيب (الموضب فعلاً × السعر المجمد)</th>
+                                <td class="fw-bold">{{ invoice.packing_subtotal }} دينار</td>
+                            </tr>
+                            <tr>
+                                <th class="bg-light">خصومات عجز الصناديق الفارغة</th>
+                                <td class="text-danger">{{ invoice.box_discount_subtotal }} دينار</td>
+                            </tr>
+                            <tr>
+                                <th class="bg-light">أجرة خدمة التبريد اليومية للطبالي الموضبة</th>
+                                <td class="fw-bold">{{ invoice.cooling_subtotal }} دينار</td>
+                            </tr>
+                            <tr>
+                                <th class="bg-light">خدمات إضافية</th>
+                                <td>{{ invoice.other_services }} دينار</td>
+                            </tr>
+                            <tr>
+                                <th class="bg-light">خصومات عامة</th>
+                                <td class="text-danger">{{ invoice.general_discount }} دينار</td>
+                            </tr>
+                            <tr class="table-success fs-5">
+                                <th class="fw-bold">الإجمالي النهائي المستحق</th>
+                                <td class="fw-bold text-success">{{ invoice.grand_total }} دينار</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    {% if invoice.notes %}
+                    <div class="p-3 bg-light rounded border text-muted small mt-3">
+                        <strong>ملاحظات:</strong> {{ invoice.notes }}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- السيارات المرتبطة بالفاتورة -->
+        <div class="col-lg-5">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-truck text-primary me-2"></i> السيارات المرتبطة بالفاتورة</h5>
+                    <span class="badge bg-primary">{{ linked_trucks.count }} سيارات</span>
+                </div>
+                <div class="card-body p-3">
+                    {% if invoice.status == 'DRAFT' and user.is_accountant %}
+                    <button class="btn btn-outline-royal btn-sm w-100 mb-3" data-bs-toggle="collapse" data-bs-target="#linkTrucksCollapse">
+                        <i class="bi bi-link-45deg me-1"></i> اختيار / ربط سيارات أخرى لهذه الفاتورة
+                    </button>
+
+                    <div class="collapse mb-3 p-3 bg-light rounded border" id="linkTrucksCollapse">
+                        <form method="post" action="{% url 'invoice_link_trucks' invoice.pk %}">
+                            {% csrf_token %}
+                            <label class="fw-bold small mb-2">اختر السيارات التابعة لهذا التاجر ونفس الصنف والسنة:</label>
+                            {{ link_form.trucks }}
+                            <div class="text-end mt-2">
+                                <button type="submit" class="btn btn-royal btn-sm">حفظ الربط</button>
+                            </div>
+                        </form>
+                    </div>
+                    {% endif %}
+
+                    <div class="list-group list-group-flush">
+                        {% for truck in linked_trucks %}
+                        <div class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
+                            <div>
+                                <a href="{% url 'truck_detail' truck.pk %}" class="fw-bold text-success text-decoration-none">
+                                    {{ truck.lot_number }}
+                                </a>
+                                <div class="small text-muted">
+                                    {{ truck.arrival_date }} &bull; {{ truck.box_count }} صندوق &bull;
+                                    {% if truck.pallet_count %}{{ truck.pallet_count }} طبلية{% endif %}{% if not truck.on_pallets %} (بكمات — بدون خصم طبالي){% endif %}
+                                </div>
+                            </div>
+                            <div class="text-end">
+                                <span class="badge bg-light text-dark border">{{ truck.calculated_net_weight }} كغ</span>
+                            </div>
+                        </div>
+                        {% empty %}
+                        <div class="text-center py-4 text-muted small">
+                            <i class="bi bi-truck fs-3 text-secondary d-block mb-1"></i>
+                            لم يتم ربط أي سيارة بهذه الفاتورة بعد.
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% attachments invoice %}
+</div>
+{% endblock %}

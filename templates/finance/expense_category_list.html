@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block title %}تصنيفات المصاريف | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success">
+                <i class="bi bi-tags me-2"></i> تصنيفات المصاريف
+            </h3>
+            <p class="text-muted small mb-0">
+                كل مصروف تشغيلي يُصنَّف تحت تصنيف واحد. أضِف وعدّل التصنيفات من هنا،
+                أو أضِف تصنيفاً سريعاً من داخل نموذج المصروف مباشرة.
+            </p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'expense_list' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-receipt-cutoff me-1"></i> المصاريف
+            </a>
+            <a href="{% url 'expense_create' %}" class="btn btn-royal">
+                <i class="bi bi-plus-circle me-1"></i> تسجيل مصروف
+            </a>
+        </div>
+    </div>
+
+    {% if messages %}
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="إغلاق"></button>
+        </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="row g-4">
+        <!-- إضافة تصنيف جديد -->
+        {% if user.is_accountant or user.is_manager or user.is_superuser %}
+        <div class="col-lg-4">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-royal py-3">
+                    <h6 class="mb-0 fw-bold"><i class="bi bi-plus-circle me-1"></i> إضافة تصنيف جديد</h6>
+                </div>
+                <div class="card-body bg-white">
+                    <form method="post" action="{% url 'expense_category_create' %}">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">اسم التصنيف *</label>
+                            {{ form.name }}
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">الرمز</label>
+                            {{ form.code }}
+                            <div class="form-text small">اختياري — رمز مختصر للاستخدام في التقارير (مثال: ELEC).</div>
+                        </div>
+                        <button type="submit" class="btn btn-royal w-100">
+                            <i class="bi bi-check-circle me-1"></i> حفظ التصنيف
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- قائمة التصنيفات -->
+        <div class="{% if user.is_accountant or user.is_manager or user.is_superuser %}col-lg-8{% else %}col-12{% endif %}">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h6 class="mb-0 fw-bold text-dark">
+                        <i class="bi bi-list-ul me-1"></i> التصنيفات المسجّلة
+                        <span class="badge bg-secondary ms-2">{{ categories|length }}</span>
+                    </h6>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>التصنيف</th>
+                                <th>الرمز</th>
+                                <th class="text-center">عدد المصاريف</th>
+                                <th class="text-center">إجمالي المصاريف</th>
+                                <th class="text-center">إجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for cat in categories %}
+                            <tr>
+                                <td class="fw-bold">{{ cat.name }}</td>
+                                <td>
+                                    {% if cat.code %}
+                                    <code>{{ cat.code }}</code>
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge bg-light text-dark border">{{ cat.expenses_count }}</span>
+                                </td>
+                                <td class="text-center fw-bold text-danger">
+                                    {{ cat.expenses_total|default:0 }} د.أ
+                                </td>
+                                <td class="text-center">
+                                    <div class="d-flex justify-content-center gap-1">
+                                        {% if user.is_accountant or user.is_manager or user.is_superuser %}
+                                        <button type="button" class="btn btn-sm btn-outline-primary"
+                                                data-bs-toggle="modal" data-bs-target="#editCat{{ cat.pk }}"
+                                                title="تعديل التصنيف">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        {% endif %}
+                                        {% include "core/_delete_button.html" with app_label="finance" model_name="expensecategory" object_id=cat.pk title="حذف التصنيف بشكل منفرد" %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="5" class="text-center py-5 text-muted">
+                                    <i class="bi bi-tags fs-3 d-block mb-2 text-secondary"></i>
+                                    لا توجد تصنيفات مصاريف بعد. أضِف أول تصنيف من النموذج المجاور.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="alert alert-light border mt-3 small text-muted">
+                <i class="bi bi-info-circle me-1 text-success"></i>
+                حذف تصنيف مرتبط بمصاريف مسجّلة غير مسموح — احذف/انقل المصاريف أولاً للحفاظ على سلامة السجل المالي.
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if user.is_accountant or user.is_manager or user.is_superuser %}
+{% for cat in categories %}
+<div class="modal fade" id="editCat{{ cat.pk }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" action="{% url 'expense_category_edit' cat.pk %}">
+                {% csrf_token %}
+                <div class="modal-header">
+                    <h6 class="modal-title fw-bold">تعديل التصنيف: {{ cat.name }}</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="إغلاق"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">اسم التصنيف *</label>
+                        <input type="text" name="name" class="form-control" value="{{ cat.name }}" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label fw-bold">الرمز</label>
+                        <input type="text" name="code" class="form-control" value="{{ cat.code }}">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">إلغاء</button>
+                    <button type="submit" class="btn btn-royal">حفظ التعديل</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

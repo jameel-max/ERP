@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}المصاريف التشغيلية | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-danger"><i class="bi bi-receipt-cutoff me-2"></i> المصاريف التشغيلية</h3>
+            <p class="text-muted small mb-0">فصل تاريخ الاستحقاق عن تاريخ الدفع؛ المصروف غير المدفوع لا يدخل التدفق النقدي الفعلي.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'expense_category_list' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-tags me-1"></i> تصنيفات المصاريف
+            </a>
+            <a href="{% url 'expense_create' %}" class="btn btn-royal">
+                <i class="bi bi-plus-circle me-1"></i> تسجيل مصروف جديد
+            </a>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>البيان</th>
+                        <th>التصنيف</th>
+                        <th>المبلغ</th>
+                        <th>الاستحقاق</th>
+                        <th>الدفع الفعلي</th>
+                        <th>الخزينة</th>
+                        <th>الحالة</th>
+                        <th>الاعتماد</th>
+                        {% if user.is_manager %}<th>إجراء</th>{% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in expenses %}
+                    <tr>
+                        <td class="fw-bold">{{ e.description }}{% if e.is_recurring %} <span class="badge bg-info-subtle text-dark border">متكرر</span>{% endif %}</td>
+                        <td><span class="badge bg-light text-dark border">{{ e.category.name }}</span></td>
+                        <td class="fw-bold text-danger">{{ e.amount }} د.أ</td>
+                        <td>{{ e.due_date }}</td>
+                        <td>{{ e.payment_date|default:"—" }}</td>
+                        <td>{{ e.treasury_account.name|default:"—" }}</td>
+                        <td>
+                            {% if e.status == 'PAID' %}<span class="badge bg-success-subtle text-success border border-success">مدفوع فعلاً</span>
+                            {% elif e.status == 'ACCRUED' %}<span class="badge bg-warning text-dark">مستحق (غير مدفوع)</span>
+                            {% else %}<span class="badge bg-secondary">ملغى</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if e.is_approved %}<span class="badge bg-success">معتمد</span>
+                            {% else %}<span class="badge bg-light text-muted border">بانتظار الاعتماد</span>{% endif %}
+                        </td>
+                        {% if user.is_manager %}
+                        <td>
+                            <div class="d-flex flex-wrap gap-1">
+                                {% if not e.is_approved and e.status != 'CANCELLED' %}
+                                <a href="{% url 'expense_approve' e.pk %}" class="btn btn-sm btn-outline-success"><i class="bi bi-check2-circle me-1"></i> اعتماد</a>
+                                {% endif %}
+                                {% if e.status != 'CANCELLED' %}
+                                <form method="post" action="{% url 'expense_cancel' e.pk %}" class="d-inline"
+                                      onsubmit="return confirm('تأكيد إلغاء المصروف وإجراء القيد العكسي على الخزينة؟');">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="reason" value="إلغاء من شاشة المصاريف بواسطة المدير">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-x-circle me-1"></i> إلغاء</button>
+                                </form>
+                                {% else %}
+                                <span class="badge bg-secondary">ملغى</span>
+                                {% endif %}
+                                {% include "core/_delete_button.html" with app_label="finance" model_name="expense" object_id=e.pk title="حذف المصروف بشكل منفرد" %}
+                            </div>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="9" class="text-center py-4 text-muted">
+                            لا توجد مصاريف مسجلة بعد. <a href="{% url 'expense_create' %}" class="text-success fw-bold">سجّل أول مصروف</a>.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

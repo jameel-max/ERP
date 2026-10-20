@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}بيانات التسليم | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-truck me-2"></i> بيانات تسليم البضاعة الموضبة</h3>
+            <p class="text-muted small mb-0">توثيق خروج الطبالي الموضبة وتسليمها للتاجر أو الشاحنة الناقلة</p>
+        </div>
+        <a href="{% url 'delivery_note_create' %}" class="btn btn-royal">
+            <i class="bi bi-plus-circle me-1"></i> إنشاء بيان تسليم جديد
+        </a>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>رقم البيان</th>
+                        <th>تاريخ التسليم</th>
+                        <th>التاجر المستلم</th>
+                        <th>السائق ورقم السيارة</th>
+                        <th>عدد الطبالي</th>
+                        <th>عدد الصناديق</th>
+                        <th>الوزن الصافي الإجمالي</th>
+                        <th>المحرر</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for note in notes %}
+                    <tr>
+                        <td class="fw-bold">
+                            <a href="{% url 'delivery_note_detail' note.pk %}" class="text-success text-decoration-none">
+                                {{ note.delivery_number }}
+                            </a>
+                        </td>
+                        <td>{{ note.delivery_date }}</td>
+                        <td class="fw-bold">{{ note.trader.name }}</td>
+                        <td>{{ note.driver_name|default:"-" }} ({{ note.truck_plate|default:"-" }})</td>
+                        <td><span class="badge bg-secondary">{{ note.total_pallets }}</span></td>
+                        <td>{{ note.total_boxes }} صندوق</td>
+                        <td class="fw-bold text-success">{{ note.total_net_weight_kg }} كغ</td>
+                        <td>{{ note.created_by.username|default:"نظام" }}</td>
+                        <td>
+                            <a href="{% url 'delivery_note_detail' note.pk %}" class="btn btn-outline-royal btn-sm">
+                                <i class="bi bi-eye me-1"></i> عرض وطباعة
+                            </a>
+                            {% include "core/_delete_button.html" with app_label="packing" model_name="deliverynote" object_id=note.pk title="حذف بيان التسليم بشكل منفرد" %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="9" class="text-center py-5 text-muted">
+                            لا توجد بيانات تسليم مسجلة بعد.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

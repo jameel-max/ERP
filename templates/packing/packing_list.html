@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}عمليات التوضيب والإنتاج | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-gear-wide-connected me-2"></i> سجل عمليات التوضيب والإنتاج</h3>
+            <p class="text-muted small mb-0">متابعة إخراج الطبالي من البراد، نواتج المقاسات، الرندمان، والهالك</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'packed_pallets_list' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-box-seam me-1"></i> الطبالي الموضبة
+            </a>
+            <a href="{% url 'delivery_notes_list' %}" class="btn btn-outline-info">
+                <i class="bi bi-truck me-1"></i> بيانات التسليم
+            </a>
+            <a href="{% url 'packing_start' %}" class="btn btn-royal">
+                <i class="bi bi-plus-circle me-1"></i> بدء عملية توضيب جديدة
+            </a>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>رمز العملية</th>
+                        <th>تاريخ البدء</th>
+                        <th>التاجر</th>
+                        <th>البضاعة</th>
+                        <th>طريقة التوضيب</th>
+                        <th>الوزن الداخل</th>
+                        <th>الوزن الموضب</th>
+                        <th>الهالك</th>
+                        <th>الرندمان %</th>
+                        <th>الحالة</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in sessions %}
+                    <tr>
+                        <td class="fw-bold">
+                            <a href="{% url 'packing_detail' s.pk %}" class="text-success text-decoration-none">
+                                {{ s.session_code }}
+                            </a>
+                        </td>
+                        <td>{{ s.started_at|date:"Y-m-d H:i" }}</td>
+                        <td class="fw-bold">{{ s.trader.name }}</td>
+                        <td><span class="badge bg-light text-dark border">{{ s.crop.name }}</span></td>
+                        <td>{{ s.get_packing_method_display }}</td>
+                        <td>{{ s.input_weight_kg }} كغ</td>
+                        <td class="fw-bold text-success">{{ s.output_packed_kg }} كغ</td>
+                        <td class="text-danger">{{ s.waste_weight_kg }} كغ</td>
+                        <td>
+                            <span class="badge {% if s.randeman_pct > 80 %}bg-success{% elif s.randeman_pct > 60 %}bg-warning text-dark{% else %}bg-secondary{% endif %} fs-6">
+                                {{ s.randeman_pct }}%
+                            </span>
+                        </td>
+                        <td>
+                            {% if s.status == 'COMPLETED' or s.status == 'APPROVED' %}
+                            <span class="badge bg-success">مكتملة وموضبة</span>
+                            {% elif s.status == 'PENDING_APPROVAL' %}
+                            <span class="badge bg-danger">بانتظار اعتماد المدير</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">قيد العمل</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{% url 'packing_detail' s.pk %}" class="btn btn-outline-royal btn-sm">
+                                <i class="bi bi-eye me-1"></i> عرض وتفاصيل
+                            </a>
+                            {% include "core/_delete_button.html" with app_label="packing" model_name="packingsession" object_id=s.pk title="حذف جلسة التوضيب بشكل منفرد" %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="11" class="text-center py-5 text-muted">
+                            <i class="bi bi-gear fs-1 d-block mb-2 text-secondary"></i>
+                            لا توجد عمليات توضيب مسجلة بعد. يمكنك <a href="{% url 'packing_start' %}" class="text-success fw-bold">بدء أول عملية توضيب الآن</a>.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

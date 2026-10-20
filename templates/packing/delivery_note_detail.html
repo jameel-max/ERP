@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block title %}بيان تسليم {{ note.delivery_number }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-4 bg-white">
+            <div class="d-flex justify-content-between align-items-center pb-3 border-bottom mb-4">
+                <div>
+                    <h2 class="fw-bold text-success mb-1">{{ note.delivery_number }}</h2>
+                    <div class="text-muted small">بيان تسليم وخروج بضاعة موضبة معتمد من مشغل {{ company_name_en }}</div>
+                </div>
+                <div class="d-flex gap-2 no-print">
+                    <button class="btn btn-outline-secondary" onclick="window.print()">
+                        <i class="bi bi-printer me-1"></i> طباعة البيان
+                    </button>
+                    {% include "core/_delete_button.html" with app_label="packing" model_name="deliverynote" object_id=note.pk btn_class="btn-outline-danger" title="حذف بيان التسليم بشكل منفرد" show_text=True %}
+                </div>
+            </div>
+
+            <div class="row g-3 mb-4">
+                <div class="col-md-4">
+                    <div class="p-2 bg-light rounded border">
+                        <div class="text-muted small">التاجر المستلم:</div>
+                        <div class="fw-bold fs-6">{{ note.trader.name }} ({{ note.trader.code }})</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="p-2 bg-light rounded border">
+                        <div class="text-muted small">تاريخ التسليم:</div>
+                        <div class="fw-bold fs-6">{{ note.delivery_date }}</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="p-2 bg-light rounded border">
+                        <div class="text-muted small">السائق والشاحنة:</div>
+                        <div class="fw-bold fs-6">{{ note.driver_name|default:"-" }} / {{ note.truck_plate|default:"-" }}</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="p-2 bg-light rounded border">
+                        <div class="text-muted small">إجمالي الطبالي المسلمة:</div>
+                        <div class="fw-bold fs-5 text-primary">{{ note.total_pallets }} طبلية</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="p-2 bg-light rounded border">
+                        <div class="text-muted small">إجمالي الصناديق:</div>
+                        <div class="fw-bold fs-5 text-primary">{{ note.total_boxes }} صندوق</div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="p-2 bg-light rounded border border-success">
+                        <div class="text-muted small">إجمالي الوزن الصافي المسلم:</div>
+                        <div class="fw-bold fs-5 text-success">{{ note.total_net_weight_kg }} كغ</div>
+                    </div>
+                </div>
+            </div>
+
+            <h5 class="fw-bold text-dark border-bottom pb-2 mb-3"><i class="bi bi-box-seam me-2 text-success"></i> تفصيل الطبالي الموضبة المسلمة:</h5>
+            <div class="table-responsive mb-4">
+                <table class="table table-bordered align-middle text-center mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>#</th>
+                            <th>رمز الطبلية الموضبة</th>
+                            <th>الطبلية الأصلية المستلمة</th>
+                            <th>البضاعة</th>
+                            <th>المقاس</th>
+                            <th>نوع الصندوق</th>
+                            <th>عدد الصناديق</th>
+                            <th>الوزن الصافي</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in note.pallets.all %}
+                        <tr>
+                            <td>{{ forloop.counter }}</td>
+                            <td class="fw-bold text-success">{{ p.packed_pallet_code }}</td>
+                            <td><code>{{ p.original_pallet.pallet_code }}</code></td>
+                            <td>{{ p.crop.name }}</td>
+                            <td><span class="badge bg-secondary">{{ p.size_name }}</span></td>
+                            <td>{{ p.box_type.name }}</td>
+                            <td>{{ p.box_count }}</td>
+                            <td class="fw-bold">{{ p.net_weight_kg }} كغ</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {% if note.notes %}
+            <div class="p-3 bg-light rounded border mb-4 text-muted small">
+                <strong>ملاحظات:</strong> {{ note.notes }}
+            </div>
+            {% endif %}
+
+            <div class="row text-center mt-5 pt-4 border-top">
+                <div class="col-4">
+                    <div class="fw-bold">توقيع مسؤول المشغل</div>
+                    <div class="mt-4">____________________</div>
+                </div>
+                <div class="col-4">
+                    <div class="fw-bold">توقيع السائق الناقل</div>
+                    <div class="mt-4">____________________</div>
+                </div>
+                <div class="col-4">
+                    <div class="fw-bold">توقيع المستلم المعتمد للتاجر</div>
+                    <div class="mt-4">____________________</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,118 @@
+{% comment %}
+قسم «الصور المرفقة» القابل لإعادة الاستخدام — يدعم عدة صور لكل سجل.
+يُعرض عبر الوسم: {% attachments object %}
+{% endcomment %}
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+        <h6 class="fw-bold mb-0 text-dark">
+            <i class="bi bi-images me-1 text-primary"></i> الصور المرفقة
+            <span class="badge bg-secondary ms-1">{{ attachments|length }}</span>
+        </h6>
+        {% if can_upload and attachments|length < max_images %}
+        <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#rfAttachUpload-{{ app_label }}-{{ model_name }}-{{ object_id }}">
+            <i class="bi bi-plus-circle me-1"></i> إرفاق صور
+        </button>
+        {% endif %}
+    </div>
+
+    {% if can_upload %}
+    <div class="collapse border-bottom bg-light" id="rfAttachUpload-{{ app_label }}-{{ model_name }}-{{ object_id }}">
+        <form method="post" action="{% url 'attachments_upload' app_label model_name object_id %}" enctype="multipart/form-data" class="p-3">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.path }}">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-7">
+                    <label class="form-label small fw-bold">اختر صورة أو أكثر (يمكن تحديد عدة صور معاً)</label>
+                    <input type="file" name="images" class="form-control" accept="image/*" multiple required>
+                    <small class="text-muted">
+                        الأنواع المسموحة: JPG، PNG، WEBP، GIF — حتى {{ max_images }} صورة لكل سجل، وحجم كل صورة حتى 8 ميجابايت.
+                        {% if attachments|length >= max_images %}<span class="text-danger">تم بلوغ الحد الأقصى لعدد الصور.</span>{% endif %}
+                    </small>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold">وصف الصور (اختياري)</label>
+                    <input type="text" name="caption" class="form-control" maxlength="200" placeholder="مثال: صورة البضاعة عند الوصول">
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-royal w-100"><i class="bi bi-upload me-1"></i> رفع</button>
+                </div>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+
+    <div class="card-body">
+        {% if attachments %}
+        <div class="row g-3">
+            {% for a in attachments %}
+            <div class="col-6 col-md-4 col-lg-3">
+                <div class="border rounded overflow-hidden h-100 position-relative bg-white">
+                    <a href="{{ a.image.url }}" class="d-block rf-thumb" data-url="{{ a.image.url }}" data-cap="{{ a.caption }}">
+                        <img src="{{ a.image.url }}" alt="{{ a.caption|default:'صورة مرفقة' }}" loading="lazy"
+                             style="width:100%;height:150px;object-fit:cover;display:block;">
+                    </a>
+                    {% if can_delete %}
+                    <form method="post" action="{% url 'attachment_delete' a.pk %}" class="position-absolute top-0 end-0 m-1"
+                          onsubmit="return confirm('تأكيد حذف هذه الصورة؟');">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ request.path }}">
+                        <button type="submit" class="btn btn-danger btn-sm" title="حذف الصورة"><i class="bi bi-x-lg"></i></button>
+                    </form>
+                    {% endif %}
+                    <div class="p-2 small">
+                        {% if a.caption %}<div class="fw-bold text-truncate" title="{{ a.caption }}">{{ a.caption }}</div>{% endif %}
+                        <div class="text-muted">
+                            {{ a.created_at|date:"Y-m-d H:i" }}
+                            {% if a.uploaded_by %} • {{ a.uploaded_by.get_full_name|default:a.uploaded_by.username }}{% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-4">
+            <i class="bi bi-image fs-1 d-block mb-2 text-secondary"></i>
+            لا توجد صور مرفقة بعد.
+            {% if can_upload %}استخدم زر «إرفاق صور» لإضافة صورة أو أكثر.{% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+(function () {
+    if (window.rfLightboxReady) { return; }
+    window.rfLightboxReady = true;
+
+    function ensureLightbox() {
+        var lb = document.getElementById('rfLightbox');
+        if (lb) { return lb; }
+        lb = document.createElement('div');
+        lb.id = 'rfLightbox';
+        lb.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1080;align-items:center;justify-content:center;cursor:zoom-out;';
+        lb.innerHTML =
+            '<span style="position:absolute;top:12px;left:18px;color:#fff;font-size:2.2rem;line-height:1;">&times;</span>' +
+            '<img id="rfLightboxImg" src="" alt="" style="max-width:92%;max-height:86%;border-radius:8px;box-shadow:0 0 30px #000;">' +
+            '<div id="rfLightboxCap" style="position:absolute;bottom:18px;width:100%;text-align:center;color:#fff;"></div>';
+        document.body.appendChild(lb);
+        lb.addEventListener('click', function () { lb.style.display = 'none'; });
+        return lb;
+    }
+
+    window.rfOpenLightbox = function (url, cap) {
+        var lb = ensureLightbox();
+        document.getElementById('rfLightboxImg').src = url;
+        document.getElementById('rfLightboxCap').textContent = cap || '';
+        lb.style.display = 'flex';
+    };
+
+    document.addEventListener('click', function (e) {
+        var thumb = e.target.closest ? e.target.closest('.rf-thumb') : null;
+        if (thumb) {
+            e.preventDefault();
+            window.rfOpenLightbox(thumb.getAttribute('data-url'), thumb.getAttribute('data-cap'));
+        }
+    });
+})();
+</script>

@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}إدخال طبالي موضبة إلى البراد | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-primary"><i class="bi bi-snow2 me-2"></i> إدخال طبالي موضبة إلى برادات المشغل</h3>
+            <p class="text-muted small mb-0">
+                خدمة التبريد اليومية: تُحتسب أجرة التبريد عن كل طبلية عن كل يوم بقاء في البراد.
+                {% if cooling_rate %}
+                الأجرة المعتمدة حالياً: <strong>{{ cooling_rate }} دينار / طبلية / يوم</strong>.
+                {% else %}
+                الأجرة اليومية غير محددة بعد (0) — تُضبط من الإعدادات، ولا تُحتسب أجرة حتى ذلك.
+                {% endif %}
+            </p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'cooling_statement' %}" class="btn btn-outline-primary">
+                <i class="bi bi-clipboard-data me-1"></i> كشف التبريد
+            </a>
+            <a href="{% url 'packed_pallets_list' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-right me-1"></i> سجل الطبالي الموضبة
+            </a>
+        </div>
+    </div>
+
+    <form method="post">
+        {% csrf_token %}
+        <div class="card shadow-sm mb-4">
+            <div class="card-header card-header-royal py-3">
+                <h5 class="mb-0 fw-bold"><i class="bi bi-geo-alt me-2"></i> اختر البراد والسيخ</h5>
+            </div>
+            <div class="card-body bg-white">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">البراد المستهدف *</label>
+                        {{ form.cold_store }}
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">السيخ / الرف (اختياري)</label>
+                        {{ form.shelf }}
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">ملاحظات</label>
+                        {{ form.notes }}
+                    </div>
+                    {% if form.errors %}
+                    <div class="col-12"><div class="alert alert-danger mb-0">{{ form.errors }}</div></div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-box2-heart text-success me-2"></i> الطبالي الموضبة غير المسلّمة</h5>
+                <span class="badge bg-secondary">{{ pallets|length }} طبلية</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 36px;">
+                                <input type="checkbox" class="form-check-input" id="selectAllPallets">
+                            </th>
+                            <th>رمز الطبلية الموضبة</th>
+                            <th>التاجر</th>
+                            <th>البضاعة والمقاس</th>
+                            <th>عدد الصناديق</th>
+                            <th>الوزن الصافي</th>
+                            <th>الموقع الحالي</th>
+                            <th>أيام التبريد</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in pallets %}
+                        <tr>
+                            <td><input type="checkbox" class="form-check-input pallet-select" name="selected_pallets" value="{{ p.pk }}"></td>
+                            <td class="fw-bold text-success">{{ p.packed_pallet_code }}</td>
+                            <td class="fw-bold">{{ p.trader.name }}</td>
+                            <td>{{ p.crop.name }} <span class="badge bg-secondary ms-1">{{ p.size_name }}</span></td>
+                            <td>{{ p.box_count }}</td>
+                            <td class="fw-bold">{{ p.net_weight_kg }} كغ</td>
+                            <td>
+                                {% if p.status == 'IN_COOLING' %}
+                                <span class="badge bg-info text-dark">في تبريد المشغل</span>
+                                <div class="small text-muted">{{ p.location_display }}</div>
+                                {% else %}
+                                <span class="badge bg-success">جاهزة وموضبة</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ p.cooling_days_total }} يوم</td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="8" class="text-center py-5 text-muted">
+                                لا توجد طبالي موضبة غير مسلّمة. أنشئ عملية توضيب أولاً.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-footer bg-white d-flex flex-wrap justify-content-between align-items-center">
+                <div class="text-muted small">
+                    <i class="bi bi-info-circle me-1"></i>
+                    إن كانت الطبلية داخل البراد أصلاً فسيُعدّ إدخالها نقلاً إلى السيخ المحدد ويُغلق احتساب الفترة السابقة.
+                </div>
+                <button type="submit" class="btn btn-primary px-4">
+                    <i class="bi bi-snow2 me-1"></i> إدخال المحدد إلى البراد وبدء التبريد
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const master = document.getElementById('selectAllPallets');
+    const boxes = document.querySelectorAll('.pallet-select');
+    if (master) {
+        master.addEventListener('change', function () {
+            boxes.forEach(b => b.checked = master.checked);
+        });
+    }
+});
+</script>
+{% endblock %}

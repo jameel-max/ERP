@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}أمر تسليم {{ delivery.reference_number }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 pb-2 border-bottom no-print">
+        <div>
+            <h3 class="fw-bold mb-0 text-success">
+                <i class="bi bi-box-arrow-up-left me-2"></i> أمر تسليم فارغ {{ delivery.reference_number }}
+            </h3>
+            <p class="text-muted small mb-0">
+                {{ delivery.get_kind_display }} — {{ delivery.recipient.name }}
+            </p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'empty_box_delivery_list' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-right me-1"></i> رجوع للقائمة
+            </a>
+            <button onclick="window.print()" class="btn btn-outline-royal">
+                <i class="bi bi-printer me-1"></i> طباعة
+            </button>
+        </div>
+    </div>
+
+    {% if delivery.status != 'DELIVERED' %}
+    <div class="alert alert-warning d-flex flex-wrap justify-content-between align-items-center gap-2 no-print">
+        <div>
+            <i class="bi bi-hourglass-split me-1"></i>
+            هذا الأمر <strong>مسودة</strong> ولم يُعتمد بعد، فلم يخصم من رصيد الفارغ المتاح ولم يُقيَّد أي مبلغ في الخزينة.
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'empty_box_delivery_edit' delivery.pk %}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-pencil me-1"></i> تعديل
+            </a>
+            <form method="post" action="{% url 'empty_box_delivery_confirm' delivery.pk %}" class="d-inline"
+                  onsubmit="return confirm('اعتماد التسليم الفعلي؟');">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-royal">
+                    <i class="bi bi-check2-circle me-1"></i> اعتماد التسليم
+                </button>
+            </form>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-success no-print">
+        <i class="bi bi-check2-circle me-1"></i>
+        هذا الأمر <strong>مُعتمد</strong> بتاريخ {{ delivery.delivered_at|date:"Y-m-d H:i" }}
+        {% if delivery.delivered_by %} بواسطة {{ delivery.delivered_by.get_full_name|default:delivery.delivered_by.username }}{% endif %}.
+        {% if delivery.is_sale %}تم تثبيت الإجمالي في الأمر{% if delivery.is_revenue_posted %} وقُيِّد المبلغ في الخزينة{% endif %}.{% endif %}
+    </div>
+    {% endif %}
+
+    <!-- بيانات الأمر -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header card-header-royal py-3">
+            <h5 class="mb-0 fw-bold"><i class="bi bi-file-earmark-text me-2"></i> بيانات أمر التسليم</h5>
+        </div>
+        <div class="card-body bg-white">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <div class="text-muted small fw-bold">رقم الأمر</div>
+                    <div class="fw-bold">{{ delivery.reference_number }}</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small fw-bold">نوع التسليم</div>
+                    <div>
+                        {% if delivery.is_return %}
+                        <span class="badge bg-primary-subtle text-primary">إرجاع إلى المزرعة</span>
+                        {% else %}
+                        <span class="badge bg-success-subtle text-success">بيع لمنظمة / جهة</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small fw-bold">الجهة المستلمة</div>
+                    <div class="fw-bold">{{ delivery.recipient.name }}</div>
+                    <small class="text-muted">{{ delivery.recipient.get_kind_display }}</small>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small fw-bold">الحالة</div>
+                    <div>
+                        {% if delivery.status == 'DELIVERED' %}
+                        <span class="badge bg-success">مُسلَّم</span>
+                        {% else %}
+                        <span class="badge bg-secondary">مسودة</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="col-md-3">
+                    <div class="text-muted small fw-bold">نوع الصندوق</div>
+                    <div class="fw-bold">{{ delivery.box_type.name }}</div>
+                    <small class="text-muted">{{ delivery.box_type.description|default:"—" }}</small>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small fw-bold">عدد الصناديق</div>
+                    <div class="fw-bold fs-5 text-success">{{ delivery.quantity }}</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small fw-bold">سعر الصندوق الواحد</div>
+                    <div>{% if delivery.is_sale %}{{ delivery.unit_price }} دينار{% else %}—{% endif %}</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small fw-bold">الإجمالي</div>
+                    <div class="fw-bold">{% if delivery.is_sale %}{{ delivery.total_amount }} دينار{% else %}—{% endif %}</div>
+                </div>
+
+                <div class="col-md-3">
+                    <div class="text-muted small fw-bold">تاريخ التسليم</div>
+                    <div>{{ delivery.delivery_date|date:"Y-m-d" }}</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small fw-bold">اسم السائق / الناقل</div>
+                    <div>{{ delivery.driver_name|default:"—" }}</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small fw-bold">رقم السيارة</div>
+                    <div>{{ delivery.vehicle_plate|default:"—" }}</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small fw-bold">طريقة القبض</div>
+                    <div>{{ delivery.get_payment_method_display|default:"—" }}</div>
+                </div>
+
+                {% if delivery.is_sale %}
+                <div class="col-md-3">
+                    <div class="text-muted small fw-bold">الخزينة المستلمة</div>
+                    <div>{{ delivery.treasury_account.name|default:"—" }}</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small fw-bold">حالة القبض</div>
+                    <div>
+                        {% if delivery.payment_method == 'RECEIVABLE' %}
+                        <span class="badge bg-warning text-dark">على الحساب (لم يُقبض)</span>
+                        {% elif delivery.status == 'DELIVERED' %}
+                        <span class="badge bg-success">مقبوض</span>
+                        {% else %}
+                        <span class="badge bg-secondary">غير مُسلَّم بعد</span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="col-md-3">
+                    <div class="text-muted small fw-bold">أنشأ الأمر</div>
+                    <div>
+                        {% if delivery.created_by %}
+                        {{ delivery.created_by.get_full_name|default:delivery.created_by.username }}
+                        {% else %}—{% endif %}
+                        <small class="text-muted d-block">{{ delivery.created_at|date:"Y-m-d H:i" }}</small>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-muted small fw-bold">اعتمد التسليم</div>
+                    <div>
+                        {% if delivery.delivered_by %}
+                        {{ delivery.delivered_by.get_full_name|default:delivery.delivered_by.username }}
+                        {% else %}—{% endif %}
+                        {% if delivery.delivered_at %}<small class="text-muted d-block">{{ delivery.delivered_at|date:"Y-m-d H:i" }}</small>{% endif %}
+                    </div>
+                </div>
+
+                {% if delivery.notes %}
+                <div class="col-12">
+                    <div class="text-muted small fw-bold">ملاحظات</div>
+                    <div class="border rounded p-2 bg-light">{{ delivery.notes|linebreaksbr }}</div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- إجمالي بالحروف/أرقام لقطة مالية -->
+    {% if delivery.is_sale %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-body bg-white d-flex flex-wrap justify-content-between align-items-center">
+            <div>
+                <div class="text-muted small fw-bold">الإجمالي المستحق على هذه العملية</div>
+                <div class="fs-3 fw-bold text-success">{{ delivery.total_amount }} <small class="fs-6">دينار</small></div>
+                <div class="text-muted small">{{ delivery.quantity }} صندوق × {{ delivery.unit_price }} دينار للصندوق</div>
+            </div>
+            <div class="text-end">
+                <div class="text-muted small fw-bold">الرصيد المتاح حالياً من هذا النوع</div>
+                <div class="fs-4 fw-bold">{{ available_for_type }}</div>
+                <div class="text-muted small">
+                    يُحدَّث فور اعتماد الأمر: الفارغ المُسلَّم يخرج من المتاح للتسليم.
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="text-muted small no-print">
+        ملاحظة محاسبية: لا يُقيَّد مبلغ البيع في الخزينة إلا عند اعتماد الأمر بطريقة قبض نقدية أو بنكية.
+        خيار «على الحساب» يبقي المبلغ غير مقبوض ولا يُنشئ قيد خزينة.
+    </div>
+</div>
+{% endblock %}

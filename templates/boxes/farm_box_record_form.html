@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-royal py-3">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-truck-front me-2"></i> {{ title }}</h5>
+                </div>
+                <div class="card-body p-4 bg-white">
+                    <div class="alert alert-light border small mb-4">
+                        <i class="bi bi-info-circle me-1 text-primary"></i>
+                        هذا القسم مستقل عن مخزون صناديق الشركة. سجّل هنا عدد الصناديق الواردة مع السيارة وعدد الصناديق
+                        الفارغة الناتجة عن تفريغ البضاعة الخام. <strong>تُسجَّل الصناديق تلقائياً باسم تاجر السيارة.</strong>
+                    </div>
+
+                    {% if truck %}
+                    <div class="alert alert-success-subtle border small mb-4">
+                        <strong>السيارة:</strong> {{ truck.lot_number }} — {{ truck.trader.name }} — {{ truck.crop.name }}
+                        <br>
+                        <strong>نوع الصناديق الواردة من المزرعة:</strong> {{ truck.box_type.name }}
+                        <span class="text-muted">(عدد الصناديق المسجّلة في الاستلام: {{ truck.box_count }})</span>
+                    </div>
+                    {% elif trader %}
+                    <div class="alert alert-success-subtle border small mb-4">
+                        <strong>التاجر:</strong> {{ trader.name }} ({{ trader.code }})
+                        — تظهر أدناه سيارات هذا التاجر التي لم يُسجَّل لها صناديق مزرعة بعد.
+                        <br>
+                        <span class="text-muted">يُحدَّد نوع الصندوق تلقائياً من سيارة الاستلام.</span>
+                    </div>
+                    {% endif %}
+
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="row g-3">
+                            {% if not truck %}
+                            <div class="col-12">
+                                <label class="form-label fw-bold">السيارة / الدفعة *</label>
+                                {{ form.truck_receipt }}
+                                {% if form.truck_receipt.errors %}<div class="text-danger small">{{ form.truck_receipt.errors }}</div>{% endif %}
+                                <small class="text-muted">تظهر فقط السيارات التي لم يُسجَّل لها صناديق مزرعة بعد.</small>
+                            </div>
+                            {% else %}
+                                {{ form.truck_receipt }}
+                            {% endif %}
+
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">عدد الصناديق الواردة *</label>
+                                {{ form.incoming_count }}
+                                {% if form.incoming_count.errors %}<div class="text-danger small">{{ form.incoming_count.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">عدد الفارغ الناتج *</label>
+                                {{ form.empty_count }}
+                                <div class="form-check mt-1">
+                                    <input class="form-check-input" type="checkbox" id="farmBoxSameAsIncoming"
+                                           {% if form.empty_count.value|stringformat:"s" == form.incoming_count.value|stringformat:"s" %}checked{% endif %}>
+                                    <label class="form-check-label small text-muted" for="farmBoxSameAsIncoming">
+                                        نفس عدد الصناديق الواردة (يُعبَّأ تلقائياً)
+                                    </label>
+                                </div>
+                                {% if form.empty_count.errors %}<div class="text-danger small">{{ form.empty_count.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">ملاحظات</label>
+                                {{ form.notes }}
+                            </div>
+                        </div>
+
+                        {% if form.non_field_errors %}
+                        <div class="alert alert-danger mt-3 mb-0">{{ form.non_field_errors }}</div>
+                        {% endif %}
+
+                        <hr class="my-4">
+                        <div class="d-flex justify-content-between">
+                            <a href="{% url 'farm_boxes_dashboard' %}" class="btn btn-outline-secondary">إلغاء</a>
+                            <button type="submit" class="btn btn-royal px-4">
+                                <i class="bi bi-save me-1"></i> حفظ السجل
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // مزامنة «عدد الفارغ الناتج» مع «عدد الصناديق الواردة» تلقائياً
+    (function () {
+        var inc = document.getElementById('id_incoming_count');
+        var emp = document.getElementById('id_empty_count');
+        var chk = document.getElementById('farmBoxSameAsIncoming');
+        if (!inc || !emp || !chk) return;
+
+        function sync() {
+            if (chk.checked) {
+                emp.value = (inc.value === '' ? 0 : inc.value);
+            }
+            emp.readOnly = chk.checked;
+            emp.classList.toggle('bg-light', chk.checked);
+        }
+
+        chk.addEventListener('change', sync);
+        inc.addEventListener('input', sync);
+        sync();
+    })();
+</script>
+{% endblock %}

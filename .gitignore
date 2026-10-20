@@ -1,0 +1,30 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Local databases and backups
+*.sqlite3
+*.db
+*.backup
+backups/
+
+# User uploads and generated files
+media/
+staticfiles/
+
+# Testing and tooling
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local project output
+project_structure.txt

@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+
+{% block title %}كشف حساب صناديق: {{ trader.name }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body p-4 bg-white">
+            <div class="d-flex flex-wrap justify-content-between align-items-center">
+                <div>
+                    <h2 class="fw-bold mb-1 text-dark"><i class="bi bi-person-badge text-success me-2"></i> كشف حساب الصناديق: {{ trader.name }}</h2>
+                    <div class="text-muted small">
+                        رمز التاجر: <span class="badge bg-secondary">{{ trader.code }}</span> &bull;
+                        رقم الهاتف: {{ trader.phone|default:"-" }} &bull;
+                        إجمالي قيمة عجز الصناديق المستحق: <strong class="text-danger fs-5">{{ total_deficit_value }} دينار</strong>
+                    </div>
+                </div>
+                <div class="d-flex gap-2 mt-3 mt-md-0">
+                    <a href="{% url 'record_box_movement' %}?trader={{ trader.id }}" class="btn btn-royal">
+                        <i class="bi bi-arrow-left-right me-1"></i> تسجيل حركة جديدة
+                    </a>
+                    <a href="{% url 'trader_detail' trader.id %}" class="btn btn-outline-success">
+                        <i class="bi bi-person-lines-fill me-1"></i> صفحة التاجر
+                    </a>
+                    <a href="{% url 'trader_financial_statement' trader.id %}" class="btn btn-outline-primary">
+                        <i class="bi bi-cash-stack me-1"></i> كشف الحساب المالي
+                    </a>
+                    <button class="btn btn-outline-secondary" onclick="window.print()">
+                        <i class="bi bi-printer me-1"></i> طباعة كشف الحساب
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- جدول أرصدة كل نوع صندوق لهذا التاجر -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white py-3 border-bottom">
+            <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-boxes text-success me-2"></i> ملخص أرصدة الصناديق الحالية في عهدة التاجر</h5>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-bordered align-middle mb-0 text-center">
+                <thead class="table-light">
+                    <tr>
+                        <th>نوع ولون الصندوق</th>
+                        <th>الصادر للتاجر (المستلم للتوضيب)</th>
+                        <th>الوارد من التاجر (المرتجع)</th>
+                        <th>الرصيد القائم في العهدة</th>
+                        <th>سعر الصندوق المعتمد للخصم</th>
+                        <th>قيمة العجز المالي المستحق</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for bal in balances %}
+                    <tr>
+                        <td class="fw-bold text-start ps-3">{{ bal.box_type.name }} <span class="badge bg-light text-dark border ms-1">{{ bal.box_type.color_or_type }}</span></td>
+                        <td>{{ bal.issued_count }}</td>
+                        <td>{{ bal.returned_count }}</td>
+                        <td class="fw-bold fs-6 {% if bal.net_balance > 0 %}text-danger{% else %}text-success{% endif %}">
+                            {{ bal.net_balance }}
+                        </td>
+                        <td>{{ bal.box_type.discount_price }} د.أ</td>
+                        <td class="fw-bold text-danger">{{ bal.total_financial_value }} د.أ</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-muted">لا توجد حركات صناديق مسجلة لهذا التاجر.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- سجل الحركات التفصيلي -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header card-header-royal py-3">
+            <h5 class="fw-bold mb-0"><i class="bi bi-clock-history me-2"></i> سجل الحركات والعمليات التفصيلي</h5>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 small">
+                <thead class="table-light">
+                    <tr>
+                        <th>التاريخ والوقت</th>
+                        <th>نوع الحركة</th>
+                        <th>نوع الصندوق</th>
+                        <th>الكمية</th>
+                        <th>المصدر</th>
+                        <th>الوجهة</th>
+                        <th>السبب / البيان</th>
+                        <th>المستخدم المنفذ</th>
+                        {% if user.is_manager %}<th>إجراء التصحيح</th>{% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for t in transactions %}
+                    <tr>
+                        <td>{{ t.timestamp|date:"Y-m-d H:i" }}</td>
+                        <td>
+                            {% if t.transaction_type == 'ISSUE' %}
+                            <span class="badge bg-warning text-dark"><i class="bi bi-arrow-up-right me-1"></i> صادر للتاجر</span>
+                            {% elif t.transaction_type == 'RETURN' %}
+                            <span class="badge bg-success"><i class="bi bi-arrow-down-left me-1"></i> وارد مرتجع</span>
+                            {% else %}
+                            <span class="badge bg-secondary">تسوية</span>
+                            {% endif %}
+                        </td>
+                        <td class="fw-bold">{{ t.box_type.name }}</td>
+                        <td class="fw-bold fs-6">{{ t.quantity }}</td>
+                        <td>{{ t.source }}</td>
+                        <td>{{ t.destination }}</td>
+                        <td>{{ t.reason }}</td>
+                        <td>{{ t.created_by.username|default:"نظام" }}</td>
+                        {% if user.is_manager %}
+                        <td>
+                            {% if t.is_reversed %}
+                            <span class="badge bg-secondary" title="{{ t.reversal_reason }}">معكوسة</span>
+                            {% elif t.transaction_type == 'ADJUSTMENT' %}
+                            <span class="text-muted small">—</span>
+                            {% else %}
+                            <form method="post" action="{% url 'reverse_box_movement' t.pk %}" class="d-inline"
+                                  onsubmit="return confirm('تأكيد عكس هذه الحركة بقيد تسوية موثق؟');">
+                                {% csrf_token %}
+                                <input type="hidden" name="reason" value="عكس حركة من كشف حساب التاجر">
+                                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-arrow-counterclockwise me-1"></i> عكس</button>
+                            </form>
+                            {% endif %}
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="9" class="text-center py-4 text-muted">لا توجد حركات مسجلة.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

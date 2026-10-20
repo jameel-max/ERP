@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}سندات القبض والتحصيلات | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-cash-stack me-2"></i> سندات القبض والتحصيلات</h3>
+            <p class="text-muted small mb-0">كل دفعة تُخصم من ذمة التاجر وتُوزَّع على الفواتير؛ الدفعة ليست إيراداً جديداً بل تحصيل لمستحق.</p>
+        </div>
+        <a href="{% url 'payment_create' %}" class="btn btn-royal">
+            <i class="bi bi-plus-circle me-1"></i> تسجيل سند قبض جديد
+        </a>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>رقم السند</th>
+                        <th>التاجر</th>
+                        <th>المبلغ</th>
+                        <th>طريقة القبض</th>
+                        <th>الخزينة / الحساب</th>
+                        <th>التاريخ</th>
+                        <th>الفواتير المسددة</th>
+                        <th>المحرر</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in payments %}
+                    <tr>
+                        <td class="fw-bold">{{ p.receipt_number }}</td>
+                        <td>{{ p.trader.name }}</td>
+                        <td class="fw-bold text-success">{{ p.amount }} د.أ</td>
+                        <td><span class="badge bg-light text-dark border">{{ p.get_payment_method_display }}</span></td>
+                        <td>{{ p.treasury_account.name|default:"—" }}</td>
+                        <td>{{ p.payment_date }}</td>
+                        <td>
+                            {% for inv in p.invoices.all %}
+                            <a href="{% url 'invoice_detail' inv.pk %}" class="badge bg-secondary text-decoration-none">{{ inv.invoice_number }}</a>
+                            {% empty %}<span class="text-muted small">غير مخصصة</span>{% endfor %}
+                        </td>
+                        <td class="small text-muted">{{ p.created_by.get_full_name|default:p.created_by.username|default:"—" }}</td>
+                        <td>
+                            {% include "core/_delete_button.html" with app_label="finance" model_name="payment" object_id=p.pk title="حذف سند القبض بشكل منفرد" %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="9" class="text-center py-4 text-muted">
+                            لا توجد سندات قبض مسجلة بعد. <a href="{% url 'payment_create' %}" class="text-success fw-bold">سجّل أول تحصيل</a>.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

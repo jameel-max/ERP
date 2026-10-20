@@ -1,0 +1,378 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-10">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-royal py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-truck me-2"></i> {{ title }}</h5>
+                    <span class="badge bg-light text-dark">Asian/Amman Server Time</span>
+                </div>
+                <div class="card-body p-4 bg-white">
+
+                    <!-- تنبيه الحقول الحرجة مقابل غير الحرجة -->
+                    <div class="alert alert-info border-0 py-2 small mb-4">
+                        <i class="bi bi-info-circle-fill me-1"></i>
+                        <strong>ملاحظة هامة:</strong>
+                        الحقول ذات النجمة الحمراء (<span class="text-danger fw-bold">*</span>) <strong>حرجة</strong> تمنع حفظ السيارة عند نقصها.
+                        باقي الحقول <strong>غير حرجة</strong>: يمكن حفظ السيارة بدونها وسيتم إنشاء تنبيه في جرس الإشعارات لتعديلها لاحقاً.
+                    </div>
+
+                    <form method="post" enctype="multipart/form-data" id="truckForm">
+                        {% csrf_token %}
+
+                        {% if form.non_field_errors %}
+                        <div class="alert alert-danger mb-3">{{ form.non_field_errors }}</div>
+                        {% endif %}
+
+                        <!-- القسم 1: بيانات الدفعة والتاجر والبضاعة -->
+                        <h6 class="fw-bold text-success border-bottom pb-2 mb-3">
+                            <i class="bi bi-tag-fill me-1"></i> 1. بيانات الدفعة، التاجر، والبضاعة
+                        </h6>
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">رقم الدفعة (Lot) تلقائي</label>
+                                {{ form.lot_number }}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold text-danger">التاجر *</label>
+                                {{ form.trader }}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold text-danger">نوع البضاعة *</label>
+                                {{ form.crop }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold text-danger">نوع الصناديق *</label>
+                                {{ form.box_type }}
+                                <small class="text-muted d-block mt-1">
+                                    <i class="bi bi-info-circle"></i>
+                                    الأنواع تُدار من <a href="{% url 'farm_boxes_dashboard' %}">الصناديق الواردة من المزرعة</a>
+                                    — وليست صناديق الشركة المستخدمة في توضيب البضاعة.
+                                </small>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold text-danger">عدد الصناديق *</label>
+                                {{ form.box_count }}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold text-danger">عدد الصناديق على الطبلية *</label>
+                                {{ form.boxes_per_pallet }}
+                                {% if form.boxes_per_pallet.errors %}<div class="text-danger small">{{ form.boxes_per_pallet.errors }}</div>{% endif %}
+                                <small class="text-muted">المعيار: 80 صندوقاً للطبلية.</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">عدد الطبالي <span class="text-muted small">(يُحسب تلقائياً)</span></label>
+                                {{ form.pallet_count }}
+                                {% if form.pallet_count.errors %}<div class="text-danger small">{{ form.pallet_count.errors }}</div>{% endif %}
+                                <small class="text-muted">تقريب لأعلى (عدد الصناديق ÷ عدد الصناديق على الطبلية).</small>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    {{ form.on_pallets }}
+                                    <label class="form-check-label fw-bold me-2" for="id_on_pallets">
+                                        نزلت البضاعة من السيارة على <strong>طبالي</strong>
+                                    </label>
+                                    <div class="text-muted small">
+                                        أزل العلامة إذا وصلت البضاعة <strong>بكمات</strong> بلا طبالي؛
+                                        عندها <strong>لا يُخصم وزن الطبالي</strong> من الصافي المحسوب.
+                                        وتبقى الطبالي مُولَّدة للتخزين والتوضيب.
+                                    </div>
+                                    <div class="text-success small fw-bold" id="palletDeductNote" style="display: none;">
+                                        <i class="bi bi-check2-circle"></i> وزن الطبالي غير مخصوم من الصافي المحسوب.
+                                    </div>
+                                    {% if form.on_pallets.errors %}<div class="text-danger small">{{ form.on_pallets.errors }}</div>{% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- القسم 2: القبان والأوزان والصافي المحسوب -->
+                        <h6 class="fw-bold text-success border-bottom pb-2 mb-3">
+                            <i class="bi bi-speedometer2 me-1"></i> 2. بيانات القبان والأوزان والصافي المحسوب
+                        </h6>
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold text-danger">الوزن القائم للميزان (كغ) *</label>
+                                {{ form.gross_weight }}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold text-danger">الوزن الفارغ للسيارة (كغ) *</label>
+                                {{ form.tare_weight }}
+                            </div>
+                            <div class="col-md-4 d-flex align-items-center">
+                                <div class="form-check mt-3">
+                                    {{ form.weight_deduction_applied }}
+                                    <label class="form-check-label fw-bold me-2">تطبيق خصم الصناديق والطبالي من قراءة الميزان</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- صندوق المعاينة الفورية للأوزان المحسوبة -->
+                        <div class="card bg-light border p-3 mb-4">
+                            <h6 class="fw-bold mb-2 text-dark"><i class="bi bi-calculator me-1"></i> ملخص حسابات القبان (معاينة فورية):</h6>
+                            <div class="row text-center g-2 small">
+                                <div class="col-md-3">
+                                    <div class="bg-white p-2 rounded border">
+                                        <div class="text-muted">الصافي الظاهر (القائم - الفارغ)</div>
+                                        <div class="fw-bold fs-6 text-primary" id="previewApparentNet">0.000 كغ</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="bg-white p-2 rounded border">
+                                        <div class="text-muted">خصم الصناديق الفارغة</div>
+                                        <div class="fw-bold fs-6 text-secondary" id="previewBoxesTare">0.000 كغ</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="bg-white p-2 rounded border">
+                                        <div class="text-muted">خصم الطبالي (10 كغ/طبلية)</div>
+                                        <div class="fw-bold fs-6 text-secondary" id="previewPalletsTare">0.000 كغ</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="bg-white p-2 rounded border border-success">
+                                        <div class="text-success fw-bold">الصافي المحسوب النهائي</div>
+                                        <div class="fw-bold fs-6 text-success" id="previewCalculatedNet">0.000 كغ</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- القسم 3: التخزين والبرادات والأسياخ -->
+                        <h6 class="fw-bold text-success border-bottom pb-2 mb-3">
+                            <i class="bi bi-snow2 me-1"></i> 3. التخزين وتحديد موقع البراد والسيخ
+                        </h6>
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold text-danger">البراد *</label>
+                                {{ form.cold_store }}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">السيخ / الرف (غير حرج)</label>
+                                {{ form.shelf }}
+                                {% if form.shelf.errors %}<div class="text-danger small">{{ form.shelf.errors }}</div>{% endif %}
+                                <small class="text-muted d-block mt-1">
+                                    <i class="bi bi-diagram-3"></i>
+                                    تظهر أسياخ البراد المختار فقط. وإذا زاد عدد الطبالي عن سعة السيخ
+                                    يتم توزيع الباقي تلقائياً على السيخ التالي، ولا يُعرض سيخ ممتلئ.
+                                </small>
+                                <div class="text-warning small fw-bold mt-1" id="shelfFullNote" style="display:none;">
+                                    <i class="bi bi-exclamation-triangle-fill"></i>
+                                    جميع أسياخ هذا البراد ممتلئة — أضِف سيخاً أو فرّغ سيخاً أولاً.
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">درجة الحرارة °C (غير حرج)</label>
+                                {{ form.temperature }}
+                            </div>
+                        </div>
+
+                        <!-- القسم 4: البيانات غير الحرجة الإضافية -->
+                        <h6 class="fw-bold text-success border-bottom pb-2 mb-3">
+                            <i class="bi bi-card-checklist me-1"></i> 4. بيانات النقل والمستندات (حقول غير حرجة)
+                        </h6>
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">اسم المزرعة <span class="text-muted small">(اختياري)</span></label>
+                                {{ form.farm_name }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">رقم شهادة التصدير <span class="text-muted small">(اختياري)</span></label>
+                                {{ form.export_certificate_no }}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">اسم السائق</label>
+                                {{ form.driver_name }}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">رقم السيارة</label>
+                                {{ form.truck_plate }}
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold">تاريخ القدوم</label>
+                                {{ form.arrival_date }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">صورة وصل القبان / المستندات</label>
+                                {{ form.scale_ticket_image }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">الوصف / ملاحظات عيوب البضاعة</label>
+                                {{ form.notes }}
+                            </div>
+                        </div>
+
+                        <hr class="my-4">
+                        <div class="d-flex justify-content-between">
+                            <a href="{% url 'truck_list' %}" class="btn btn-outline-secondary">إلغاء</a>
+                            <button type="submit" class="btn btn-royal px-5 py-2 fs-5" id="truckSubmitBtn"
+                                    data-edit="{% if is_edit %}1{% else %}0{% endif %}">
+                                <i class="bi bi-check2-circle me-1"></i> {% if is_edit %}تحديث بيانات السيارة{% else %}اعتماد واستلام السيارة وتوليد الطبالي{% endif %}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{{ shelves_list|json_script:"shelvesData" }}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const grossInput = document.getElementById('id_gross_weight');
+    const tareInput = document.getElementById('id_tare_weight');
+    const boxCountInput = document.getElementById('id_box_count');
+    const boxesPerPalletInput = document.getElementById('id_boxes_per_pallet');
+    const palletCountInput = document.getElementById('id_pallet_count');
+    const onPalletsCheckbox = document.getElementById('id_on_pallets');
+    const applyDeductionCheckbox = document.getElementById('id_weight_deduction_applied');
+    const submitBtn = document.getElementById('truckSubmitBtn');
+    const coldStoreSelect = document.getElementById('id_cold_store');
+    const shelfSelect = document.getElementById('id_shelf');
+    const shelfFullNote = document.getElementById('shelfFullNote');
+
+    // أسياخ كل براد مع سعتها المتاحة (يُبنى في الخادم)
+    let shelvesData = [];
+    try {
+        shelvesData = JSON.parse(document.getElementById('shelvesData')?.textContent || 'null') || [];
+    } catch (e) {
+        shelvesData = [];
+    }
+
+    const previewApparent = document.getElementById('previewApparentNet');
+    const previewBoxesTare = document.getElementById('previewBoxesTare');
+    const previewPalletsTare = document.getElementById('previewPalletsTare');
+    const previewCalculated = document.getElementById('previewCalculatedNet');
+
+    function onPallets() {
+        return onPalletsCheckbox ? onPalletsCheckbox.checked : true;
+    }
+
+    // عدد الطبالي = تقريب لأعلى (عدد الصناديق ÷ عدد الصناديق على الطبلية)
+    function computePalletCount() {
+        const boxCount = parseInt(boxCountInput?.value) || 0;
+        const boxesPerPallet = parseInt(boxesPerPalletInput?.value) || 0;
+        if (!boxCount || !boxesPerPallet) return 0;
+        return Math.ceil(boxCount / boxesPerPallet);
+    }
+
+    function updatePalletCount() {
+        if (palletCountInput) {
+            palletCountInput.value = computePalletCount();
+        }
+    }
+
+    function updatePreview() {
+        const gross = parseFloat(grossInput?.value) || 0;
+        const tare = parseFloat(tareInput?.value) || 0;
+        const boxCount = parseInt(boxCountInput?.value) || 0;
+        const palletCount = onPallets() ? computePalletCount() : 0;
+        const applyDeduction = applyDeductionCheckbox ? applyDeductionCheckbox.checked : true;
+
+        const apparentNet = Math.max(0, gross - tare);
+        const boxesTare = boxCount * 0.8; // افتراضي 0.8 كغ
+        const palletsTare = palletCount * 10.0; // افتراضي 10 كغ
+
+        let calculatedNet = apparentNet;
+        if (applyDeduction) {
+            calculatedNet = Math.max(0, apparentNet - boxesTare - palletsTare);
+        }
+
+        previewApparent.innerText = apparentNet.toFixed(3) + ' كغ';
+        previewBoxesTare.innerText = boxesTare.toFixed(3) + ' كغ';
+        previewPalletsTare.innerText = palletsTare.toFixed(3) + ' كغ';
+        previewCalculated.innerText = calculatedNet.toFixed(3) + ' كغ';
+    }
+
+    // عند وصول البضاعة بكمات (بدون طبالي): لا يُخصم وزن الطبالي، وتبقى الطبالي مُولَّدة.
+    function togglePallets() {
+        const on = onPallets();
+        const note = document.getElementById('palletDeductNote');
+        if (note) note.style.display = on ? 'none' : '';
+        updateButtonText();
+        updatePreview();
+    }
+
+    function updateButtonText() {
+        if (!submitBtn) return;
+        const isEdit = submitBtn.dataset.edit === '1';
+        const icon = '<i class="bi bi-check2-circle me-1"></i> ';
+        if (isEdit) {
+            submitBtn.innerHTML = icon + 'تحديث بيانات السيارة';
+            return;
+        }
+        submitBtn.innerHTML = icon + (computePalletCount() > 0
+            ? 'اعتماد واستلام السيارة وتوليد الطبالي'
+            : 'اعتماد واستلام السيارة');
+    }
+
+    // عرض أسياخ البراد المختار فقط، وإخفاء الأسياخ الممتلئة حتى يتوفر فيها مكان.
+    function rebuildShelfOptions() {
+        if (!coldStoreSelect || !shelfSelect) return;
+        const storeId = coldStoreSelect.value;
+        const previous = shelfSelect.value;
+        const available = shelvesData.filter(function (s) {
+            return String(s.store_id) === String(storeId) && !s.full;
+        });
+
+        shelfSelect.innerHTML = '';
+        const noneOpt = document.createElement('option');
+        noneOpt.value = '';
+        noneOpt.textContent = '— بدون سيخ —';
+        shelfSelect.appendChild(noneOpt);
+
+        let keptPrevious = false;
+        available.forEach(function (s) {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = s.label;
+            if (String(s.id) === String(previous)) {
+                opt.selected = true;
+                keptPrevious = true;
+            }
+            shelfSelect.appendChild(opt);
+        });
+        // إن لم يعد السيخ السابق صالحاً (براد آخر أو ممتلئ) نُفرغ الاختيار.
+        if (previous && !keptPrevious) shelfSelect.value = '';
+        // إن لم يكن هناك اختيار صالح، نختار أول سيخ متاح تلقائياً حتى تبدأ الطبالي منه
+        // وتنتقل إلى السيخ التالي عند امتلائه دون حاجة لتدخّل المستخدم.
+        if (!keptPrevious && available.length) {
+            shelfSelect.value = available[0].id;
+        }
+
+        if (shelfFullNote) {
+            const storeHasShelves = shelvesData.some(function (s) {
+                return String(s.store_id) === String(storeId);
+            });
+            shelfFullNote.style.display = (storeHasShelves && available.length === 0) ? '' : 'none';
+        }
+    }
+
+    [grossInput, tareInput, boxCountInput, boxesPerPalletInput].forEach(el => {
+        if (el) el.addEventListener('input', function () {
+            updatePalletCount();
+            updateButtonText();
+            updatePreview();
+        });
+    });
+    if (applyDeductionCheckbox) {
+        applyDeductionCheckbox.addEventListener('change', updatePreview);
+    }
+    if (onPalletsCheckbox) {
+        onPalletsCheckbox.addEventListener('change', togglePallets);
+    }
+    if (coldStoreSelect) {
+        coldStoreSelect.addEventListener('change', rebuildShelfOptions);
+    }
+    updatePalletCount();
+    togglePallets();
+    rebuildShelfOptions();
+});
+</script>
+{% endblock %}

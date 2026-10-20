@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}قائمة التجار | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-people-fill me-2"></i> قائمة التجار (المزارعين)</h3>
+            <p class="text-muted small mb-0">إدارة حسابات التجار وبيانات التواصل وأماكن بضاعتهم بالبرادات</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'import_csv' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-file-earmark-spreadsheet me-1"></i> استيراد CSV
+            </a>
+            <a href="{% url 'trader_create' %}" class="btn btn-royal">
+                <i class="bi bi-person-plus-fill me-1"></i> إضافة تاجر جديد
+            </a>
+        </div>
+    </div>
+
+    <!-- شريط البحث -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-body p-3">
+            <form method="get" class="row g-2 align-items-center">
+                <div class="col-md-9">
+                    <div class="input-group">
+                        <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" name="q" value="{{ query }}" class="form-control border-start-0" placeholder="ابحث باسم التاجر، رمزه (مثال: T001)، أو رقم هاتفه...">
+                    </div>
+                </div>
+                <div class="col-md-3 d-flex gap-2">
+                    <button type="submit" class="btn btn-royal w-100">بحث</button>
+                    {% if query %}
+                    <a href="{% url 'trader_list' %}" class="btn btn-outline-secondary">إلغاء</a>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- جدول التجار -->
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>الرمز</th>
+                        <th>اسم التاجر</th>
+                        <th>رقم الهاتف</th>
+                        <th>أسعار التوضيب المعتمدة</th>
+                        <th>حالة الحساب</th>
+                        <th>تاريخ الإضافة</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for trader in traders %}
+                    <tr>
+                        <td class="fw-bold"><span class="badge bg-secondary">{{ trader.code }}</span></td>
+                        <td class="fw-bold fs-6">
+                            <a href="{% url 'trader_detail' trader.pk %}" class="text-decoration-none text-success">
+                                {{ trader.name }}
+                            </a>
+                        </td>
+                        <td dir="ltr" class="text-end">{{ trader.phone|default:"-" }}</td>
+                        <td>
+                            {% for rate in trader.packing_rates.all|slice:":2" %}
+                            <span class="badge bg-light text-dark border me-1">
+                                {{ rate.get_method_display }}: {{ rate.rate_per_kg }} د.أ
+                            </span>
+                            {% empty %}
+                            <span class="text-muted small">لم تحدد أسعار خاصة بعد</span>
+                            {% endfor %}
+                        </td>
+                        <td>
+                            {% if trader.is_active %}
+                            <span class="badge bg-success-subtle text-success">نشط</span>
+                            {% else %}
+                            <span class="badge bg-danger-subtle text-danger">معطل</span>
+                            {% endif %}
+                        </td>
+                        <td><small class="text-muted">{{ trader.created_at|date:"Y-m-d" }}</small></td>
+                        <td>
+                            <a href="{% url 'trader_detail' trader.pk %}" class="btn btn-outline-royal btn-sm">
+                                <i class="bi bi-folder2-open me-1"></i> فتح صفحة التاجر
+                            </a>
+                            {% include "core/_delete_button.html" with app_label="operations" model_name="trader" object_id=trader.pk %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center py-5 text-muted">
+                            <i class="bi bi-people fs-1 d-block mb-2 text-secondary"></i>
+                            لا يوجد تجار مطابقون لبحثك. يمكنك <a href="{% url 'trader_create' %}" class="text-success fw-bold">إضافة تاجر جديد</a>.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

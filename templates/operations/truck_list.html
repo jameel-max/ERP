@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}السيارات ووصول البضاعة | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-truck me-2"></i> سجل استلام السيارات (وصول البضاعة)</h3>
+            <p class="text-muted small mb-0">توثيق القبان، الأوزان، والصافي المحسوب، وتوليد الطبالي ورموز QR</p>
+        </div>
+        <a href="{% url 'truck_create' %}" class="btn btn-royal">
+            <i class="bi bi-plus-circle me-1"></i> استلام سيارة جديدة
+        </a>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>رقم الدفعة (Lot)</th>
+                        <th>تاريخ القدوم</th>
+                        <th>التاجر</th>
+                        <th>البضاعة</th>
+                        <th>نوع وعدد الصناديق</th>
+                        <th>الطبالي</th>
+                        <th>القائم</th>
+                        <th>الفارغ</th>
+                        <th>الصافي الظاهر</th>
+                        <th>الصافي المحسوب</th>
+                        <th>الموقع المولد</th>
+                        <th>الحالة</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for truck in trucks %}
+                    <tr>
+                        <td class="fw-bold">
+                            <a href="{% url 'truck_detail' truck.pk %}" class="text-success text-decoration-none">
+                                {{ truck.lot_number }}
+                            </a>
+                        </td>
+                        <td>{{ truck.arrival_date }}</td>
+                        <td class="fw-bold">{{ truck.trader.name }}</td>
+                        <td><span class="badge bg-light text-dark border">{{ truck.crop.name }}</span></td>
+                        <td>{{ truck.box_count }} <small class="text-muted">({{ truck.box_type.name }})</small></td>
+                        <td>
+                            {% if truck.pallet_count %}
+                            <span class="badge bg-secondary">{{ truck.pallet_count }}</span>
+                            {% endif %}
+                            {% if not truck.on_pallets %}
+                            <span class="badge bg-info text-dark border" title="بضاعة بكمات: لا يُخصم وزن الطبالي">بكمات</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ truck.gross_weight }} كغ</td>
+                        <td>{{ truck.tare_weight }} كغ</td>
+                        <td>{{ truck.apparent_net_weight }} كغ</td>
+                        <td class="fw-bold text-success">{{ truck.calculated_net_weight }} كغ</td>
+                        <td><small class="text-muted">{{ truck.auto_description|default:truck.cold_store.name }}</small></td>
+                        <td>
+                            <span class="badge bg-primary">{{ truck.get_status_display }}</span>
+                            {% if truck.missing_fields_summary %}
+                            <span class="badge bg-warning text-dark" title="حقول ناقصة: {{ truck.missing_fields_summary }}"><i class="bi bi-exclamation-triangle"></i></span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <a href="{% url 'truck_detail' truck.pk %}" class="btn btn-outline-secondary" title="عرض التفاصيل"><i class="bi bi-eye"></i></a>
+                                <a href="{% url 'truck_edit' truck.pk %}" class="btn btn-outline-primary" title="تعديل"><i class="bi bi-pencil"></i></a>
+                                <a href="{% url 'truck_print_all_labels' truck.pk %}" class="btn btn-outline-success" target="_blank" title="طباعة ملصقات الطبالي"><i class="bi bi-printer"></i></a>
+                                {% include "core/_delete_button.html" with app_label="operations" model_name="truckreceipt" object_id=truck.pk title="حذف السيارة بشكل منفرد" %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="13" class="text-center py-5 text-muted">
+                            <i class="bi bi-truck fs-1 d-block mb-2 text-secondary"></i>
+                            لا توجد سيارات مسجلة حتى الآن. يمكنك <a href="{% url 'truck_create' %}" class="text-success fw-bold">استلام أول سيارة الآن</a>.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

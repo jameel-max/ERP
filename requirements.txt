@@ -1,0 +1,37 @@
+# ============================================================
+# Royal Fruit Packhouse ERP - Python dependencies
+# المشغل: رويال فروت (Royal Fruit)
+# Python 3.12+ / Django 6.x
+# ============================================================
+
+# Core framework
+Django==6.1.2
+asgiref==3.12.1
+sqlparse==0.6.0
+
+# Timezone data (Asia/Amman on Windows)
+tzdata==2026.5
+
+# Images (box photos, document uploads, QR/label rendering)
+pillow==13.0.0
+
+# QR / SSCC codes for pallet labels
+qrcode==8.2
+
+# PDF generation (invoices & reports)
+reportlab==5.0.1
+
+# Excel export (reports)
+openpyxl==3.1.5
+
+# PostgreSQL driver (مطلوب عند استخدام Neon أو أي PostgreSQL)
+# يُثبَّت كخيار مُفضّل: psycopg 3 يدعم SSL و Neon رسمياً
+psycopg[binary]==3.3.6
+
+# ============================================================
+# Production (النشر الإنتاجي) - راجع deploy/README_DEPLOY_AR.md
+# ============================================================
+# WSGI server (يعمل على Windows و Linux)
+waitress==3.0.2
+# تقديم الملفات الساكنة بكفاءة دون حاجة لخادم ويب منفصل
+whitenoise==6.8.2

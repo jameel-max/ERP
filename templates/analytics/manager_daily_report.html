@@ -1,0 +1,178 @@
+{% extends 'base.html' %}
+{% block title %}التقرير اليومي للمدير | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-file-earmark-text me-2"></i> التقرير اليومي الشامل للمدير</h3>
+            <p class="text-muted small mb-0">
+                تاريخ التقرير: {{ report_date|date:"Y-m-d H:i" }} (توقيت عمّان) — أرقام مبنية على الحركات المعتمدة فقط.
+            </p>
+        </div>
+        <div class="d-flex gap-2 no-print">
+            <button onclick="window.print()" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i> طباعة</button>
+            <a href="{% url 'manager_daily_pdf' %}" class="btn btn-royal"><i class="bi bi-file-earmark-pdf me-1"></i> تصدير PDF</a>
+            <a href="{% url 'export_manager_daily_excel' %}" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i> تصدير Excel</a>
+            <a href="{% url 'analytics_dashboard' %}" class="btn btn-outline-royal"><i class="bi bi-arrow-right me-1"></i> عودة للوحة</a>
+        </div>
+    </div>
+
+    <!-- المؤشرات المالية -->
+    <div class="card mb-4">
+        <div class="card-header card-header-royal py-3">
+            <h5 class="fw-bold mb-0"><i class="bi bi-cash-coin me-2"></i> المؤشرات المالية والتشغيلية</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered align-middle mb-0">
+                    <tbody>
+                        <tr><th class="bg-light" style="width:50%">الإيراد المكتسب (الفواتير المعتمدة)</th><td class="fw-bold text-success">{{ kpis.earned_revenue }} د.أ</td></tr>
+                        <tr><th class="bg-light">المصاريف التشغيلية (أساس الاستحقاق)</th><td class="fw-bold text-danger">{{ kpis.operating_expenses }} د.أ</td></tr>
+                        <tr><th class="bg-light">النتيجة التشغيلية الأولية</th><td class="fw-bold">{{ kpis.operating_result }} د.أ</td></tr>
+                        <tr><th class="bg-light">المقبوضات النقدية الفعلية</th><td>{{ kpis.actual_cash_in }} د.أ</td></tr>
+                        <tr><th class="bg-light">المدفوعات النقدية الفعلية</th><td>{{ kpis.actual_cash_out }} د.أ</td></tr>
+                        <tr><th class="bg-light">صافي التدفق النقدي الفعلي</th><td class="fw-bold">{{ kpis.net_cash_flow }} د.أ</td></tr>
+                        <tr><th class="bg-light">صافي الذمم المدينة على التجار</th><td>{{ kpis.net_receivables }} د.أ</td></tr>
+                        <tr><th class="bg-light">رصيد الخزينة والبنوك</th><td class="fw-bold text-primary">{{ kpis.total_treasury_balance }} د.أ</td></tr>
+                        <tr><th class="bg-light">الشيكات قيد التحصيل</th><td>{{ kpis.checks_under_collection }} د.أ</td></tr>
+                        <tr><th class="bg-light">كلفة الورشة لكل كغ</th><td>{{ labor_kpis.cost_per_kg }} د.أ</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- التنبيهات -->
+    <div class="card mb-4">
+        <div class="card-header bg-white border-bottom py-3">
+            <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-lightbulb me-2 text-warning"></i> التنبيهات والتوصيات</h5>
+        </div>
+        <div class="card-body">
+            <ul class="mb-0">
+                {% for a in alerts %}
+                <li class="mb-1">{{ a }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    <!-- حركات اليوم -->
+    <div class="row g-3 mb-4">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-truck me-1 text-success"></i> استلام السيارات اليوم ({{ today_receipts|length }})</h6>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead class="table-light"><tr><th>#</th><th>التاجر</th><th>البضاعة</th><th>البراد</th></tr></thead>
+                            <tbody>
+                                {% for r in today_receipts %}
+                                <tr>
+                                    <td><a href="{% url 'truck_detail' r.pk %}">{{ r.receipt_number }}</a></td>
+                                    <td>{{ r.trader.name }}</td>
+                                    <td>{{ r.crop.name }}</td>
+                                    <td>{{ r.cold_store.name|default:'—' }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4" class="text-center text-muted py-3">لا يوجد استلام سيارات اليوم.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                </table>
+            </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-gear-wide-connected me-1 text-primary"></i> عمليات التوضيب اليوم ({{ today_sessions|length }})</h6>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-bordered align-middle mb-0">
+                            <thead class="bg-light">
+                                <tr><th>رقم العملية</th><th>التاجر والبضاعة</th><th>الوزن الموضب</th><th>الرندمان</th></tr>
+                            </thead>
+                            <tbody>
+                                {% for s in today_sessions %}
+                                <tr>
+                                    <td>{{ s.session_code }}</td>
+                                    <td>{{ s.trader.name }} — {{ s.crop.name }}</td>
+                                    <td>{{ s.output_packed_kg }} كغ</td>
+                                    <td>{{ s.randeman_pct }}%</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4" class="text-center text-muted py-3">لا توجد عمليات توضيب اليوم.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- المصاريف والمقبوضات -->
+    <div class="row g-3 mb-4">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-receipt me-1 text-danger"></i> مصاريف اليوم</h6>
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-sm mb-0">
+                        <thead class="bg-light"><tr><th>البيان</th><th>المبلغ</th><th>الحالة</th></tr></thead>
+                        <tbody>
+                            {% for e in today_expenses %}
+                            <tr><td>{{ e.description }}</td><td>{{ e.amount }} د.أ</td><td>{{ e.get_status_display }}</td></tr>
+                            {% empty %}
+                            <tr><td colspan="3" class="text-center text-muted py-3">لا توجد مصاريف اليوم.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-cash-stack me-1 text-success"></i> مقبوضات اليوم</h6>
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-sm mb-0">
+                        <thead class="bg-light"><tr><th>التاجر</th><th>المبلغ</th><th>الطريقة</th></tr></thead>
+                        <tbody>
+                            {% for p in today_payments %}
+                            <tr><td>{{ p.trader.name }}</td><td>{{ p.amount }} د.أ</td><td>{{ p.get_payment_method_display }}</td></tr>
+                            {% empty %}
+                            <tr><td colspan="3" class="text-center text-muted py-3">لا توجد مقبوضات اليوم.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- الشيكات قيد التحصيل -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-white border-bottom py-3">
+            <h6 class="fw-bold mb-0"><i class="bi bi-journal-check me-1"></i> الشيكات قيد التحصيل</h6>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-sm mb-0">
+                <thead class="bg-light"><tr><th>رقم الشيك</th><th>التاجر</th><th>المبلغ</th><th>الاستحقاق</th><th>الحالة</th></tr></thead>
+                <tbody>
+                    {% for c in checks_under_collection %}
+                    <tr><td>{{ c.check_number }}</td><td>{{ c.trader.name }}</td><td>{{ c.amount }} د.أ</td><td>{{ c.due_date }}</td><td>{{ c.get_status_display }}</td></tr>
+                    {% empty %}
+                    <tr><td colspan="5" class="text-center text-muted py-3">لا توجد شيكات قيد التحصيل.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

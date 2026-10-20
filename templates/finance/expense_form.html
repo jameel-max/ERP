@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-royal py-3">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-receipt-cutoff me-2"></i> {{ title }}</h5>
+                </div>
+                <div class="card-body p-4 bg-white">
+                    <form method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">تصنيف المصروف *</label>
+                                <div class="d-flex gap-1">
+                                    {{ form.category }}
+                                    {% if user.is_accountant or user.is_manager or user.is_superuser %}
+                                    <button type="button" class="btn btn-outline-success text-nowrap"
+                                            data-bs-toggle="collapse" data-bs-target="#quickAddCategory"
+                                            title="إضافة تصنيف جديد">
+                                        <i class="bi bi-plus-lg"></i>
+                                    </button>
+                                    {% endif %}
+                                </div>
+                                {% if form.category.errors %}
+                                <div class="text-danger small mt-1">{{ form.category.errors }}</div>
+                                {% endif %}
+
+                                <div class="collapse mt-2" id="quickAddCategory">
+                                    <div class="border rounded bg-light p-2">
+                                        <label class="form-label small fw-bold mb-1">تصنيف جديد — يُضاف ويُختار فوراً</label>
+                                        <div class="d-flex gap-1">
+                                            <input type="text" id="newCategoryName" class="form-control form-control-sm"
+                                                   placeholder="اسم التصنيف (مثال: إيجار، محروقات)">
+                                            <input type="text" id="newCategoryCode" class="form-control form-control-sm"
+                                                   style="max-width: 120px;" placeholder="رمز (اختياري)">
+                                            <button type="button" class="btn btn-success btn-sm text-nowrap" id="saveNewCategory">
+                                                <i class="bi bi-check-lg"></i> إضافة
+                                            </button>
+                                        </div>
+                                        <div id="quickAddCategoryMsg" class="small mt-1"></div>
+                                        <div class="small text-muted mt-1">
+                                            أو أدِر كل التصنيفات من
+                                            <a href="{% url 'expense_category_list' %}" class="text-success fw-bold">صفحة تصنيفات المصاريف</a>.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">المبلغ (دينار) *</label>
+                                {{ form.amount }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">تاريخ الاستحقاق (الفترة التي يخصها) *</label>
+                                {{ form.due_date }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">حالة المصروف *</label>
+                                {{ form.status }}
+                                <div class="form-text small">"مستحق" لا يخصم من الخزينة ولا يدخل التدفق النقدي حتى يتم دفعه.</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">الخزينة / الحساب المسدد منه</label>
+                                {{ form.treasury_account }}
+                                <div class="form-text small">إلزامي للمصروف المدفوع فعلاً.</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">الجهة المستفيدة / المورد</label>
+                                {{ form.beneficiary }}
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">بيان المصروف *</label>
+                                {{ form.description }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold d-block">مصروف متكرر</label>
+                                <div class="form-check form-switch">
+                                    {{ form.is_recurring }}
+                                    <label class="form-check-label small text-muted">يُمنع تكرار الاستحقاق لنفس الفترة</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">مفتاح عدم التكرار</label>
+                                {{ form.recurrence_key }}
+                                <div class="form-text small">مثال: إيجار يونيو 2026 → <code>RENT-2026-06</code></div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">صورة السند / الفاتورة</label>
+                                {{ form.receipt_image }}
+                            </div>
+                        </div>
+                        <div class="alert alert-light border mt-4 small text-muted">
+                            <i class="bi bi-info-circle me-1 text-success"></i>
+                            المصروف غير المدفوع لا يدخل التدفق النقدي، ويُعتمد المدفوع منه على أساس الاستحقاق للفترة التي يخصها.
+                        </div>
+                        <hr class="my-4">
+                        <div class="d-flex justify-content-between">
+                            <a href="{% url 'expense_list' %}" class="btn btn-outline-secondary">إلغاء</a>
+                            <button type="submit" class="btn btn-royal px-4"><i class="bi bi-check-circle me-1"></i> حفظ المصروف</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const saveBtn = document.getElementById('saveNewCategory');
+    if (!saveBtn) return;
+    const nameInput = document.getElementById('newCategoryName');
+    const codeInput = document.getElementById('newCategoryCode');
+    const msg = document.getElementById('quickAddCategoryMsg');
+    const categorySelect = document.getElementById('{{ form.category.id_for_label }}') ||
+                           document.querySelector('select[name="category"]');
+
+    function setMsg(text, ok) {
+        if (!msg) return;
+        msg.textContent = text;
+        msg.className = 'small mt-1 ' + (ok ? 'text-success' : 'text-danger');
+    }
+
+    saveBtn.addEventListener('click', function () {
+        const name = (nameInput.value || '').trim();
+        if (!name) { setMsg('اكتب اسم التصنيف أولاً.', false); nameInput.focus(); return; }
+        saveBtn.disabled = true;
+        setMsg('جارٍ الإضافة...', true);
+
+        const body = new URLSearchParams();
+        body.append('name', name);
+        body.append('code', (codeInput.value || '').trim());
+
+        fetch('{% url "expense_category_quick_add" %}', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': '{{ csrf_token }}',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+            },
+            body: body.toString()
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            saveBtn.disabled = false;
+            if (!data.ok) { setMsg(data.error || 'تعذّرت الإضافة.', false); return; }
+            if (categorySelect) {
+                let opt = null;
+                for (let i = 0; i < categorySelect.options.length; i++) {
+                    if (categorySelect.options[i].value === String(data.id)) { opt = categorySelect.options[i]; break; }
+                }
+                if (!opt) {
+                    opt = document.createElement('option');
+                    opt.value = data.id;
+                    opt.textContent = data.name;
+                    categorySelect.appendChild(opt);
+                }
+                categorySelect.value = String(data.id);
+            }
+            setMsg(data.existed ? 'التصنيف موجود مسبقاً وتم اختياره.' : 'تمت إضافة التصنيف واختياره.', true);
+            nameInput.value = '';
+            codeInput.value = '';
+        })
+        .catch(function () {
+            saveBtn.disabled = false;
+            setMsg('تعذّر الاتصال بالخادم — تحقق من الشبكة وحاول مجدداً.', false);
+        });
+    });
+});
+</script>
+{% endblock %}

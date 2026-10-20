@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+{% load attachments_tags %}
+
+{% block title %}تفاصيل السيارة {{ truck.lot_number }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4">
+
+    <!-- رأس تفاصيل السيارة -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body p-4 bg-white">
+            <div class="d-flex flex-wrap justify-content-between align-items-center">
+                <div>
+                    <div class="d-flex align-items-center gap-2">
+                        <h2 class="fw-bold mb-0 text-dark">الدفعة: {{ truck.lot_number }}</h2>
+                        <span class="badge bg-primary fs-6">{{ truck.get_status_display }}</span>
+                        {% if truck.pallet_count %}
+                        <span class="badge bg-secondary fs-6">{{ truck.pallet_count }} طبلية ({{ truck.boxes_per_pallet }} صندوقاً/طبلية)</span>
+                        {% endif %}
+                        {% if not truck.on_pallets %}
+                        <span class="badge bg-info text-dark fs-6"><i class="bi bi-bag me-1"></i> بضاعة بكمات — لا يُخصم وزن الطبالي</span>
+                        {% endif %}
+                        {% if truck.missing_fields_summary %}
+                        <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> حقول ناقصة: {{ truck.missing_fields_summary }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="text-muted small mt-1">
+                        التاجر: <a href="{% url 'trader_detail' truck.trader.pk %}" class="fw-bold text-success text-decoration-none">{{ truck.trader.name }}</a> &bull;
+                        البضاعة: <strong>{{ truck.crop.name }}</strong> &bull;
+                        تاريخ القدوم: {{ truck.arrival_date }} &bull;
+                        الموقع التلقائي: <span class="badge bg-light text-dark border">{{ truck.auto_description|default:truck.cold_store.name }}</span>
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap gap-2 mt-3 mt-md-0">
+                    {% if truck.farm_box_record %}
+                    <a href="{% url 'farm_box_record_edit' truck.farm_box_record.pk %}" class="btn btn-outline-success">
+                        <i class="bi bi-truck-front me-1"></i> صناديق المزرعة: {{ truck.farm_box_record.incoming_count }} وارد / {{ truck.farm_box_record.empty_count }} فارغ
+                    </a>
+                    {% else %}
+                    <a href="{% url 'farm_box_record_create_for_truck' truck.pk %}" class="btn btn-outline-success">
+                        <i class="bi bi-truck-front me-1"></i> تسجيل صناديق المزرعة
+                    </a>
+                    {% endif %}
+                    <a href="{% url 'truck_edit' truck.pk %}" class="btn btn-outline-primary">
+                        <i class="bi bi-pencil me-1"></i> تعديل السيارة
+                    </a>
+                    <a href="{% url 'truck_print_all_labels' truck.pk %}" target="_blank" class="btn btn-royal">
+                        <i class="bi bi-printer-fill me-1"></i> طباعة ملصقات جميع الطبالي ({{ pallets.count }})
+                    </a>
+                    {% include "core/_delete_button.html" with app_label="operations" model_name="truckreceipt" object_id=truck.pk btn_class="btn-outline-danger" title="حذف السيارة بشكل منفرد" show_text=True %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <!-- تفصيل حسابات القبان والأوزان -->
+        <div class="col-lg-8">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-speedometer2 text-success me-2"></i> تفصيل قراءة الميزان وحسابات القبان</h5>
+                </div>
+                <div class="card-body p-4">
+                    <div class="row g-3 text-center mb-4">
+                        <div class="col-md-4">
+                            <div class="bg-light p-3 rounded border">
+                                <div class="text-muted small">الوزن القائم (الميزان)</div>
+                                <div class="fs-4 fw-bold text-dark">{{ truck.gross_weight }} <small class="fs-6">كغ</small></div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="bg-light p-3 rounded border">
+                                <div class="text-muted small">الوزن الفارغ للسيارة</div>
+                                <div class="fs-4 fw-bold text-dark">{{ truck.tare_weight }} <small class="fs-6">كغ</small></div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="bg-primary-subtle p-3 rounded border border-primary">
+                                <div class="text-primary small fw-bold">الصافي الظاهر (القائم - الفارغ)</div>
+                                <div class="fs-4 fw-bold text-primary">{{ truck.apparent_net_weight }} <small class="fs-6">كغ</small></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 text-center">
+                        <div class="col-md-4">
+                            <div class="bg-light p-3 rounded border">
+                                <div class="text-muted small">خصم وزن الصناديق ({{ truck.box_count }} صندوق)</div>
+                                <div class="fs-5 fw-bold text-secondary">{{ truck.crates_tare_weight }} <small class="fs-6">كغ</small></div>
+                                <small class="text-muted" style="font-size: 0.75rem;">نوع: {{ truck.box_type.name }} ({{ truck.box_type.tare_weight }} كغ)</small>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="bg-light p-3 rounded border">
+                                <div class="text-muted small">
+                                    خصم وزن الطبالي
+                                    {% if truck.on_pallets %}({{ truck.pallet_count }} طبلية){% else %}(غير مطبَّق){% endif %}
+                                </div>
+                                <div class="fs-5 fw-bold text-secondary">{{ truck.pallets_tare_weight }} <small class="fs-6">كغ</small></div>
+                                <small class="text-muted" style="font-size: 0.75rem;">
+                                    {% if truck.on_pallets %}{{ system_settings.empty_pallet_weight }} كغ لكل طبلية{% else %}بضاعة بكمات: لا يُخصم وزن الطبالي{% endif %}
+                                </small>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="bg-success-subtle p-3 rounded border border-success">
+                                <div class="text-success small fw-bold">الصافي المحسوب المعتمد</div>
+                                <div class="fs-4 fw-bold text-success">{{ truck.calculated_net_weight }} <small class="fs-6">كغ</small></div>
+                                <small class="text-success" style="font-size: 0.75rem;">
+                                    {% if truck.weight_deduction_applied %}تم خصم الصناديق والطبالي{% else %}الميزان صافٍ بدون خصم{% endif %}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    {% if truck.notes %}
+                    <div class="mt-4 p-3 bg-light rounded border">
+                        <strong class="text-dark"><i class="bi bi-chat-left-text me-1"></i> وصف عيوب البضاعة وملاحظات المحاسب:</strong>
+                        <p class="mb-0 mt-1 text-muted">{{ truck.notes }}</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- بيانات السائق والمستندات -->
+        <div class="col-lg-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-info-circle text-primary me-2"></i> بيانات السيارة والمستندات</h5>
+                </div>
+                <div class="card-body p-3">
+                    <ul class="list-group list-group-flush small mb-3">
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">اسم السائق:</span>
+                            <span class="fw-bold">{{ truck.driver_name|default:"غير مسجل" }}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">رقم السيارة:</span>
+                            <span class="fw-bold">{{ truck.truck_plate|default:"غير مسجل" }}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">البراد المخصص:</span>
+                            <span class="fw-bold text-success">{{ truck.cold_store.name }}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">السيخ / الرف:</span>
+                            <span class="fw-bold">{% if truck.shelf %}السيخ {{ truck.shelf.shelf_number }}{% else %}غير محدد{% endif %}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">درجة الحرارة:</span>
+                            <span class="fw-bold">{% if truck.temperature is not None %}{{ truck.temperature }}°C{% else %}غير مسجلة{% endif %}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">اسم المزرعة:</span>
+                            <span class="fw-bold">{{ truck.farm_name|default:"غير مسجل" }}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">رقم شهادة التصدير:</span>
+                            <span class="fw-bold">{{ truck.export_certificate_no|default:"غير مسجل" }}</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">المحاسب المُنشئ:</span>
+                            <span>{{ truck.created_by.get_full_name|default:truck.created_by.username|default:"نظام" }}</span>
+                        </li>
+                    </ul>
+
+                    {% if truck.scale_ticket_image %}
+                    <div class="border rounded p-2 text-center">
+                        <div class="fw-bold small mb-1 text-muted">صورة وصل القبان:</div>
+                        <a href="{{ truck.scale_ticket_image.url }}" target="_blank">
+                            <img src="{{ truck.scale_ticket_image.url }}" alt="وصل القبان" class="img-fluid rounded" style="max-height: 180px;">
+                        </a>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-light border text-center small text-muted mb-0">
+                        <i class="bi bi-image me-1"></i> لم يتم إرفاق صورة القبان بعد
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- جدول الطبالي الناتجة عن السيارة -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header card-header-royal py-3 d-flex justify-content-between align-items-center">
+            <h5 class="fw-bold mb-0"><i class="bi bi-box-seam me-2"></i> الطبالي المفرزة للسيارة ({{ pallets.count }} طبلية)</h5>
+            <a href="{% url 'truck_print_all_labels' truck.pk %}" target="_blank" class="btn btn-light btn-sm fw-bold">
+                <i class="bi bi-printer me-1"></i> طباعة ملصقات الطبالي
+            </a>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>رقم الطبلية</th>
+                        <th>معيار GS1 (رمز SSCC)</th>
+                        <th>عدد الصناديق</th>
+                        <th>الوزن الصافي التقديري</th>
+                        <th>الموقع الحالي</th>
+                        <th>الحالة</th>
+                        <th>أيام البقاء بالبراد</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pallet in pallets %}
+                    <tr>
+                        <td class="fw-bold">
+                            <a href="{% url 'pallet_detail' pallet.pk %}" class="text-success text-decoration-none">
+                                {{ pallet.pallet_code }}
+                            </a>
+                        </td>
+                        <td><code>{{ pallet.sscc_code }}</code></td>
+                        <td>{{ pallet.box_count }} صندوق</td>
+                        <td>{{ pallet.estimated_net_weight }} كغ</td>
+                        <td>
+                            <span class="badge bg-info text-dark">
+                                {{ pallet.cold_store.name }} {% if pallet.shelf %}– السيخ {{ pallet.shelf.shelf_number }}{% endif %}
+                            </span>
+                        </td>
+                        <td><span class="badge bg-primary">{{ pallet.get_status_display }}</span></td>
+                        <td>{{ pallet.days_in_cooling }} يوم</td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <a href="{% url 'pallet_detail' pallet.pk %}" class="btn btn-outline-secondary" title="تفاصيل الطبلية وحركاتها"><i class="bi bi-eye"></i></a>
+                                <a href="{% url 'pallet_print_label' pallet.pk %}" target="_blank" class="btn btn-outline-success" title="طباعة ملصق الطبلية"><i class="bi bi-printer"></i></a>
+                                {% include "core/_delete_button.html" with app_label="operations" model_name="pallet" object_id=pallet.pk title="حذف الطبلية بشكل منفرد" %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- سجل درجات حرارة طبالي هذه السيارة -->
+    {% if temp_logs %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom py-3">
+            <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-thermometer-half text-info me-2"></i> سجل درجات حرارة طبالي هذه السيارة</h5>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr><th>الطبلية</th><th>البراد</th><th>الحرارة</th><th>النوع</th><th>المستخدم</th><th>الوقت</th></tr>
+                </thead>
+                <tbody>
+                    {% for log in temp_logs %}
+                    <tr>
+                        <td class="fw-bold">{{ log.pallet.pallet_code }}</td>
+                        <td>{{ log.cold_store.name }}</td>
+                        <td class="fw-bold">{{ log.temperature }}°C</td>
+                        <td><span class="badge {% if log.log_type == 'ENTRY' %}bg-success{% elif log.log_type == 'EXIT' %}bg-warning text-dark{% else %}bg-info text-dark{% endif %}">{{ log.get_log_type_display }}</span></td>
+                        <td>{{ log.recorded_by.get_full_name|default:log.recorded_by.username|default:"—" }}</td>
+                        <td class="text-muted small">{{ log.recorded_at|date:"Y-m-d H:i" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% attachments truck %}
+</div>
+{% endblock %}

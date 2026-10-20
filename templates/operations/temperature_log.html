@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}سجل درجات حرارة البرادات | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-thermometer-half me-2"></i> سجل درجات حرارة البرادات</h3>
+            <p class="text-muted small mb-0">تسجيل ومراقبة درجات الحرارة عند الإدخال والإخراج والقياس الدوري لكل براد.</p>
+        </div>
+        <div>
+            <a href="{% url 'cold_store_list' %}" class="btn btn-outline-royal"><i class="bi bi-snow2 me-1"></i> خريطة البرادات</a>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <!-- نموذج تسجيل قياس -->
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header card-header-royal py-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-plus-circle me-1"></i> تسجيل قياس حرارة</h6>
+                </div>
+                <div class="card-body">
+                    {% if user.is_accountant or user.is_manager %}
+                    <form method="post" action="{% url 'cold_store_temperature_log' %}">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">البراد</label>
+                            <select name="cold_store" class="form-select" required>
+                                <option value="">اختر البراد...</option>
+                                {% for s in stores %}
+                                <option value="{{ s.pk }}" {% if selected_store and selected_store.pk == s.pk %}selected{% endif %}>{{ s.name }} ({{ s.code }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">درجة الحرارة (°C)</label>
+                            <input type="number" step="0.1" name="temperature" class="form-control" required placeholder="مثال: -1.5">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">نوع القياس</label>
+                            <select name="log_type" class="form-select">
+                                {% for val, label in log_types %}
+                                <option value="{{ val }}" {% if val == 'PERIODIC' %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">ملاحظات (اختياري)</label>
+                            <input type="text" name="notes" class="form-control" maxlength="255" placeholder="أي ملاحظات على القياس">
+                        </div>
+                        <button type="submit" class="btn btn-royal w-100"><i class="bi bi-check2-circle me-1"></i> حفظ القياس</button>
+                    </form>
+                    {% else %}
+                    <div class="text-muted text-center py-4">
+                        <i class="bi bi-eye fs-3 d-block mb-2"></i>
+                        صلاحيتك للعرض فقط، لا يمكنك تسجيل قياسات جديدة.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- جدول القياسات -->
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                    <h6 class="fw-bold mb-0">
+                        <i class="bi bi-list-check me-1"></i>
+                        {% if selected_store %}قياسات {{ selected_store.name }}{% else %}كل القياسات{% endif %}
+                    </h6>
+                    <form method="get" class="d-flex gap-2">
+                        <select name="store" class="form-select form-select-sm" onchange="this.form.submit()">
+                            <option value="">كل البرادات</option>
+                            {% for s in stores %}
+                            <option value="{{ s.pk }}" {% if selected_store and selected_store.pk == s.pk %}selected{% endif %}>{{ s.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </form>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="bg-light">
+                                <tr>
+                                    <th>البراد</th>
+                                    <th>الحرارة</th>
+                                    <th>النوع</th>
+                                    <th>الطبلية</th>
+                                    <th>المستخدم</th>
+                                    <th>ملاحظات</th>
+                                    <th>الوقت</th>
+                                    <th>إجراءات</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for log in logs %}
+                                <tr>
+                                    <td class="fw-bold">{{ log.cold_store.name }}</td>
+                                    <td class="fw-bold">{{ log.temperature }}°C</td>
+                                    <td>
+                                        <span class="badge {% if log.log_type == 'ENTRY' %}bg-success{% elif log.log_type == 'EXIT' %}bg-warning text-dark{% else %}bg-info text-dark{% endif %}">
+                                            {{ log.get_log_type_display }}
+                                        </span>
+                                    </td>
+                                    <td>{% if log.pallet %}{{ log.pallet.pallet_code }}{% else %}—{% endif %}</td>
+                                    <td>{{ log.recorded_by.get_full_name|default:log.recorded_by.username|default:"—" }}</td>
+                                    <td class="text-muted small">{{ log.notes|default:"—" }}</td>
+                                    <td class="text-muted small">{{ log.recorded_at|date:"Y-m-d H:i" }}</td>
+                                    <td>
+                                        {% include "core/_delete_button.html" with app_label="operations" model_name="coldstoretemperaturelog" object_id=log.pk title="حذف القياس بشكل منفرد" %}
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="8" class="text-center py-4 text-muted">لا توجد قياسات مسجلة بعد.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

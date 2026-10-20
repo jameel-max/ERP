@@ -1,0 +1,15 @@
+[Unit]
+Description=Royal Fruit Packhouse ERP
+After=network.target
+
+[Service]
+Type=simple
+User=royal
+WorkingDirectory=/opt/royal-fruit-erp
+EnvironmentFile=/opt/royal-fruit-erp/.env
+ExecStart=/opt/royal-fruit-erp/.venv/bin/python scripts/production_server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,109 @@
+{% load static %}<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>بيانات الطبلية {{ pallet.pallet_code }} | {{ company_name_en }}</title>
+    <link rel="stylesheet" href="{% static 'vendor/bootstrap/bootstrap.rtl.min.css' %}">
+    <link rel="stylesheet" href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}">
+    <link rel="stylesheet" href="{% static 'vendor/cairo/cairo.css' %}">
+    <style>
+        body {
+            font-family: 'Cairo', sans-serif;
+            background-color: #f1f5f3;
+            color: #1e293b;
+        }
+        .header-bar {
+            background-color: #1B4D3E;
+            color: white;
+            padding: 1.2rem;
+            text-align: center;
+        }
+        .data-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+        .label-title {
+            color: #64748b;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .label-value {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+    </style>
+</head>
+<body>
+    <div class="header-bar shadow">
+        <h3 class="fw-bold mb-0"><i class="bi bi-box-seam me-2"></i> {{ company_name_en }} ({{ company_name_ar }})</h3>
+        <small class="text-light opacity-75">نظام تتبع الطبالي وبطاقة الاستلام المعتمدة</small>
+    </div>
+
+    <div class="container my-4">
+        <div class="row justify-content-center">
+            <div class="col-md-7 col-lg-6">
+                <div class="data-card p-4">
+                    <div class="text-center pb-3 border-bottom mb-3">
+                        <span class="badge bg-success fs-6 mb-2">{{ pallet.get_status_display }}</span>
+                        <h2 class="fw-bold text-success mb-1">{{ pallet.pallet_code }}</h2>
+                        <code class="fs-6">{{ pallet.sscc_code }}</code>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <div class="label-title">التاجر والمزرعة</div>
+                            <div class="label-value text-primary">{{ qr_data.trader }}</div>
+                        </div>
+                        <div class="col-6">
+                            <div class="label-title">نوع البضاعة</div>
+                            <div class="label-value">{{ qr_data.crop }}</div>
+                        </div>
+                        <div class="col-6">
+                            <div class="label-title">عدد الصناديق</div>
+                            <div class="label-value">{{ qr_data.box_count }} صندوق</div>
+                            <small class="text-muted">{{ qr_data.box_type }}</small>
+                        </div>
+                        <div class="col-6">
+                            <div class="label-title">الوزن الصافي التقديري</div>
+                            <div class="label-value text-success">{{ qr_data.net_weight_kg }} كغ</div>
+                        </div>
+                        <div class="col-6">
+                            <div class="label-title">رقم السيارة والوصول</div>
+                            <div class="label-value">{{ qr_data.truck_plate }}</div>
+                            <small class="text-muted">{{ qr_data.lot_number }} ({{ qr_data.arrival_date }})</small>
+                        </div>
+                        <div class="col-6">
+                            <div class="label-title">اسم السائق</div>
+                            <div class="label-value">{{ qr_data.driver_name }}</div>
+                        </div>
+                        <div class="col-6">
+                            <div class="label-title">البراد والسيخ</div>
+                            <div class="label-value text-info">{{ qr_data.cold_store }} – {{ qr_data.shelf }}</div>
+                        </div>
+                        <div class="col-6">
+                            <div class="label-title">درجة الحرارة</div>
+                            <div class="label-value">{{ qr_data.temperature }}</div>
+                        </div>
+                        <div class="col-12">
+                            <div class="label-title">الملاحظات ووصف العيوب</div>
+                            <div class="p-2 bg-light rounded border text-muted small mt-1">
+                                {{ qr_data.notes }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="text-center mt-4 pt-3 border-top">
+                        <a href="{% url 'pallet_detail' pallet.pk %}" class="btn btn-outline-success w-100">
+                            <i class="bi bi-box-arrow-in-right me-1"></i> فتح في لوحة المشغل
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

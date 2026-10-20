@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}سجل التدقيق | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-clock-history me-2"></i> سجل التدقيق وحركات النظام (Audit Log)</h3>
+            <p class="text-muted small mb-0">توثيق كامل للعمليات والتغييرات والمستخدم المنفذ وفقاً للبند 11 من المواصفات</p>
+        </div>
+        <a href="{% url 'home' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-right me-1"></i> العودة للرئيسية</a>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 small">
+                <thead class="table-light">
+                    <tr>
+                        <th>التاريخ والوقت</th>
+                        <th>المستخدم</th>
+                        <th>العملية</th>
+                        <th>الجدول / الكيان</th>
+                        <th>المعرف</th>
+                        <th>الوصف / التفاصيل</th>
+                        <th>السبب / المبرر</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td>{{ log.timestamp|date:"Y-m-d H:i:s" }}</td>
+                        <td class="fw-bold">{{ log.user.username|default:"نظام" }}</td>
+                        <td><span class="badge bg-secondary">{{ log.action }}</span></td>
+                        <td><code>{{ log.model_name }}</code></td>
+                        <td>{{ log.object_id }}</td>
+                        <td>{{ log.object_repr|truncatechars:60 }}</td>
+                        <td>{{ log.reason|default:"-" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4 text-muted">لا توجد حركات مسجلة حالياً.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

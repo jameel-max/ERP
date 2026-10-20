@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+{% load static %}
+{% load l10n %}
+
+{% block title %}لوحة المدير والمؤشرات | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-graph-up-arrow me-2"></i> لوحة المدير والمؤشرات التشغيلية والمالية</h3>
+            <p class="text-muted small mb-0">مؤشرات حقيقية مبنية على الحركات المعتمدة. لا تُعرض أي أرقام تجريبية أو عشوائية.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'manager_daily_report' %}" class="btn btn-outline-secondary"><i class="bi bi-file-earmark-text me-1"></i> التقرير اليومي</a>
+            <a href="{% url 'export_manager_daily_excel' %}" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i> تصدير Excel</a>
+            <a href="{% url 'manager_daily_pdf' %}" class="btn btn-royal"><i class="bi bi-file-earmark-pdf me-1"></i> تصدير PDF</a>
+        </div>
+    </div>
+
+    {% if not recent_sessions and kpis.earned_revenue == 0 and kpis.operating_expenses == 0 %}
+    <div class="alert alert-info border-0 shadow-sm mb-4">
+        <i class="bi bi-info-circle me-1"></i> قاعدة البيانات فارغة أو لا توجد حركات معتمدة بعد. ستظهر المؤشرات والرسوم تلقائياً بعد إدخال البيانات.
+    </div>
+    {% endif %}
+
+    <!-- شبكة المؤشرات المالية -->
+    <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl-3">
+            <div class="card border-start border-4 border-success h-100">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">الإيراد المكتسب</span>
+                    <h3 class="fw-bold my-1 text-success">{{ kpis.earned_revenue }}</h3>
+                    <small class="text-muted">صافي إيراد الخدمات المعتمدة</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="card border-start border-4 border-danger h-100">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">المصاريف التشغيلية</span>
+                    <h3 class="fw-bold my-1 text-danger">{{ kpis.operating_expenses }}</h3>
+                    <small class="text-muted">أساس الاستحقاق للفترة</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="card border-start border-4 border-primary h-100">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">النتيجة التشغيلية الأولية</span>
+                    <h3 class="fw-bold my-1 {% if kpis.operating_result >= 0 %}text-primary{% else %}text-danger{% endif %}">{{ kpis.operating_result }}</h3>
+                    <small class="text-muted">ليست صافي الربح النهائي</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="card border-start border-4 border-info h-100">
+                <div class="card-body">
+                    <span class="text-muted fw-bold small text-uppercase">صافي التدفق النقدي</span>
+                    <h3 class="fw-bold my-1 {% if kpis.net_cash_flow >= 0 %}text-info{% else %}text-danger{% endif %}">{{ kpis.net_cash_flow }}</h3>
+                    <small class="text-muted">مقبوضات − مدفوعات نقدية فعلية</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- مؤشرات المدير الستة -->
+    <div class="row g-3 mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header card-header-royal py-3">
+                    <h5 class="fw-bold mb-0"><i class="bi bi-speedometer2 me-2"></i> مؤشرات المدير الأساسية</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3 text-center">
+                        <div class="col-md-4 col-lg-2">
+                            <div class="border rounded p-3 h-100 bg-light">
+                                <i class="bi bi-percent fs-3 text-success"></i>
+                                <div class="text-muted small mt-1">الرندمان (آخر عمليات)</div>
+                                <div class="fw-bold fs-5">
+                                    {% if recent_sessions %}{{ recent_sessions.0.randeman_pct }}%{% else %}—{% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4 col-lg-2">
+                            <div class="border rounded p-3 h-100 bg-light">
+                                <i class="bi bi-collection fs-3 text-primary"></i>
+                                <div class="text-muted small mt-1">توزيع المقاسات</div>
+                                <div class="fw-bold fs-5">{{ recent_sessions|length }} عملية</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4 col-lg-2">
+                            <div class="border rounded p-3 h-100 bg-light">
+                                <i class="bi bi-snow2 fs-3 text-info"></i>
+                                <div class="text-muted small mt-1">إشغال البرادات</div>
+                                <div class="fw-bold fs-5">
+                                    {% for s in store_occupancy %}{{ s.rate }}{% if not forloop.last %} / {% endif %}{% endfor %}%
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4 col-lg-2">
+                            <div class="border rounded p-3 h-100 bg-light">
+                                <i class="bi bi-tools fs-3 text-warning"></i>
+                                <div class="text-muted small mt-1">كلفة الورشة/كغ</div>
+                                <div class="fw-bold fs-5">{{ labor_kpis.cost_per_kg }} د.أ</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4 col-lg-2">
+                            <div class="border rounded p-3 h-100 bg-light">
+                                <i class="bi bi-cash-coin fs-3 text-danger"></i>
+                                <div class="text-muted small mt-1">صافي الذمم</div>
+                                <div class="fw-bold fs-5">{{ kpis.net_receivables }} د.أ</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4 col-lg-2">
+                            <div class="border rounded p-3 h-100 bg-light">
+                                <i class="bi bi-safe fs-3 text-dark"></i>
+                                <div class="text-muted small mt-1">رصيد الخزينة</div>
+                                <div class="fw-bold fs-5">{{ kpis.total_treasury_balance }} د.أ</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- مركز التحليل الذكي -->
+    <div class="row g-3 mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-lightbulb me-2 text-warning"></i> مركز التحليل الذكي (اكتشاف مؤشرات من بيانات حقيقية)</h5>
+                </div>
+                <div class="card-body">
+                    {% if smart_insights %}
+                    <div class="row g-3">
+                        {% for ins in smart_insights %}
+                        <div class="col-md-6">
+                            <div class="alert alert-{{ ins.type }} border-0 mb-0 h-100">
+                                <h6 class="fw-bold mb-1"><i class="bi {{ ins.icon }} me-1"></i> {{ ins.title }}</h6>
+                                <div class="small mb-0">{{ ins.desc }}</div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-muted text-center py-3">
+                        <i class="bi bi-check2-circle fs-2 text-success d-block mb-1"></i>
+                        لا توجد مؤشرات تستدعي التنبيه حالياً بناءً على البيانات المعتمدة.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- الرسوم البيانية -->
+    <div class="row g-3 mb-4">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-bar-chart me-1 text-success"></i> توزيع المقاسات الموضبة (كغ)</h6>
+                </div>
+                <div class="card-body">
+                    <canvas id="sizesChart" height="220"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-clipboard-data me-1 text-primary"></i> إشغال البرادات (طبالي / سعة معتمدة)</h6>
+                </div>
+                <div class="card-body">
+                    <canvas id="occupancyChart" height="220"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- آخر عمليات التوضيب -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+            <h6 class="fw-bold mb-0"><i class="bi bi-clock-history me-1"></i> آخر عمليات التوضيب (الرندمان والهالك والفرق)</h6>
+            <a href="{% url 'packing_list' %}" class="small fw-bold text-success text-decoration-none">كل عمليات التوضيب</a>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>رمز الجلسة</th><th>التاجر</th><th>البضاعة</th><th>الطريقة</th>
+                        <th>الداخل (كغ)</th><th>الموضب (كغ)</th><th>الهالك (كغ)</th>
+                        <th>الفرق غير المفسر</th><th>الرندمان</th><th>الحالة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in recent_sessions %}
+                    <tr>
+                        <td><a href="{% url 'packing_detail' s.pk %}" class="fw-bold text-success text-decoration-none">{{ s.session_code }}</a></td>
+                        <td>{{ s.trader.name }}</td>
+                        <td>{{ s.crop.name }}</td>
+                        <td>{{ s.get_packing_method_display }}</td>
+                        <td>{{ s.input_weight_kg }}</td>
+                        <td class="fw-bold text-success">{{ s.output_packed_kg }}</td>
+                        <td class="text-danger">{{ s.waste_weight_kg }}</td>
+                        <td class="{% if s.unexplained_diff_kg > 0 %}text-warning fw-bold{% endif %}">{{ s.unexplained_diff_kg }}</td>
+                        <td>
+                            <span class="badge {% if s.randeman_pct >= 85 %}bg-success{% elif s.randeman_pct >= 75 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                {{ s.randeman_pct }}%
+                            </span>
+                        </td>
+                        <td><span class="badge bg-light text-dark border">{{ s.get_status_display }}</span></td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="10" class="text-center py-4 text-muted">لا توجد عمليات توضيب مسجلة بعد.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'vendor/chartjs/chart.umd.min.js' %}"></script>
+<script>
+    (function () {
+        const sizeLabels = {{ chart_sizes_labels|safe }};
+        const sizeData = {{ chart_sizes_data }};
+
+        const sizesEl = document.getElementById('sizesChart');
+        if (sizesEl) {
+            new Chart(sizesEl, {
+                type: 'bar',
+                data: {
+                    labels: sizeLabels.length ? sizeLabels : ['لا توجد بيانات'],
+                    datasets: [{
+                        label: 'الوزن الموضب (كغ)',
+                        data: sizeData.length ? sizeData : [0],
+                        backgroundColor: '#1B4D3E',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        }
+
+        const occData = [
+            {% for s in store_occupancy %}
+            { name: "{{ s.name|escapejs }}", occupied: {{ s.occupied|unlocalize }}, capacity: {{ s.capacity|unlocalize }} }{% if not forloop.last %},{% endif %}
+            {% endfor %}
+        ];
+        const occEl = document.getElementById('occupancyChart');
+        if (occEl) {
+            new Chart(occEl, {
+                type: 'bar',
+                data: {
+                    labels: occData.length ? occData.map(o => o.name) : ['لا توجد بيانات'],
+                    datasets: [
+                        {
+                            label: 'طبالي مشغولة',
+                            data: occData.length ? occData.map(o => o.occupied) : [0],
+                            backgroundColor: '#1d4ed8',
+                            borderRadius: 6
+                        },
+                        {
+                            label: 'السعة المعتمدة',
+                            data: occData.length ? occData.map(o => o.capacity) : [0],
+                            backgroundColor: '#cbd5e1',
+                            borderRadius: 6
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'bottom' } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}

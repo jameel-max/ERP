@@ -1,0 +1,326 @@
+{% extends "base.html" %}
+{% load attachments_tags %}
+
+{% block title %}صفحة التاجر: {{ trader.name }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4">
+
+    <!-- رأس صفحة التاجر -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body p-4 bg-white">
+            <div class="d-flex flex-wrap justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    <div class="p-3 bg-success-subtle text-success rounded-circle me-3">
+                        <i class="bi bi-person-circle fs-1"></i>
+                    </div>
+                    <div>
+                        <div class="d-flex align-items-center gap-2">
+                            <h2 class="fw-bold mb-0 text-dark">{{ trader.name }}</h2>
+                            <span class="badge bg-secondary fs-6">{{ trader.code }}</span>
+                            {% if trader.is_active %}
+                            <span class="badge bg-success-subtle text-success">حساب نشط</span>
+                            {% else %}
+                            <span class="badge bg-danger-subtle text-danger">معطل</span>
+                            {% endif %}
+                        </div>
+                        <div class="text-muted small mt-1">
+                            <i class="bi bi-telephone me-1"></i> {{ trader.phone|default:"بدون هاتف" }} &bull;
+                            <i class="bi bi-card-text me-1"></i> الرقم الوطني: {{ trader.national_id|default:"-" }} &bull;
+                            <i class="bi bi-calendar me-1"></i> تاريخ الانضمام: {{ trader.created_at|date:"Y-m-d" }}
+                        </div>
+                        {% if trader.notes %}
+                        <div class="text-muted small mt-1"><i class="bi bi-info-circle me-1"></i> {{ trader.notes }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap gap-2 mt-3 mt-md-0">
+                    <a href="{% url 'invoice_create' %}?trader={{ trader.id }}" class="btn btn-royal">
+                        <i class="bi bi-receipt me-1"></i> إنشاء فاتورة جديدة
+                    </a>
+                    <a href="{% url 'truck_create' %}?trader={{ trader.id }}" class="btn btn-outline-success">
+                        <i class="bi bi-truck me-1"></i> استلام سيارة جديدة
+                    </a>
+                    <a href="{% url 'trader_financial_statement' trader.id %}" class="btn btn-outline-primary">
+                        <i class="bi bi-cash-stack me-1"></i> كشف الحساب المالي
+                    </a>
+                    <a href="{% url 'trader_boxes_statement' trader.id %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-inboxes me-1"></i> كشف الصناديق
+                    </a>
+                    {% include "core/_delete_button.html" with app_label="operations" model_name="trader" object_id=trader.pk %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <!-- القسم الأيمن: مكان بضاعة التاجر في البرادات + أسعار التوضيب -->
+        <div class="col-lg-5">
+            <!-- 1. مكان بضاعة التاجر بالبرادات -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="fw-bold mb-0 text-dark">
+                        <i class="bi bi-snow2 text-primary me-2"></i> مكان بضاعة التاجر في البرادات
+                    </h5>
+                    <span class="badge bg-primary">{{ stored_pallets.count }} طبلية</span>
+                </div>
+                <div class="card-body p-3">
+                    {% if stored_pallets %}
+                    <div class="list-group list-group-flush">
+                        {% for p in stored_pallets %}
+                        <div class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
+                            <div>
+                                <a href="{% url 'pallet_detail' p.pk %}" class="fw-bold text-success text-decoration-none">
+                                    {{ p.pallet_code }}
+                                </a>
+                                <div class="small text-muted">
+                                    البضاعة: <strong>{{ p.crop.name }}</strong> &bull; {{ p.box_count }} صندوق
+                                </div>
+                            </div>
+                            <div class="text-end">
+                                <span class="badge bg-info text-dark">
+                                    {{ p.cold_store.name }} {% if p.shelf %}– السيخ {{ p.shelf.shelf_number }}{% endif %}
+                                </span>
+                                <div class="small text-muted">{{ p.days_in_cooling }} يوم بالبراد</div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-center py-4 text-muted">
+                        <i class="bi bi-check2-circle fs-3 text-secondary d-block mb-1"></i>
+                        لا توجد طبالي مخزنة لهذا التاجر في البرادات حالياً.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- 2. أسعار التوضيب المعتمدة للتاجر -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="fw-bold mb-0 text-dark">
+                        <i class="bi bi-tag text-success me-2"></i> أسعار التوضيب الخاصة بالتاجر
+                    </h5>
+                    {% if user.is_manager %}
+                    <button class="btn btn-outline-royal btn-sm" data-bs-toggle="collapse" data-bs-target="#addRateCollapse">
+                        <i class="bi bi-plus-lg"></i> إضافة سعر
+                    </button>
+                    {% endif %}
+                </div>
+                <div class="card-body p-3">
+                    {% if user.is_manager %}
+                    <div class="collapse mb-3 p-3 bg-light rounded border" id="addRateCollapse">
+                        <h6 class="fw-bold mb-2">إضافة سعر توضيب جديد للتاجر:</h6>
+                        <form method="post" action="{% url 'trader_add_rate' trader.pk %}">
+                            {% csrf_token %}
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <label class="small fw-bold">الطريقة</label>
+                                    {{ rate_form.method }}
+                                </div>
+                                <div class="col-6">
+                                    <label class="small fw-bold">السعر (دينار/كغ)</label>
+                                    {{ rate_form.rate_per_kg }}
+                                </div>
+                                <div class="col-6">
+                                    <label class="small fw-bold">تاريخ السريان</label>
+                                    {{ rate_form.effective_date }}
+                                </div>
+                                <div class="col-6">
+                                    <label class="small fw-bold">ملاحظات</label>
+                                    {{ rate_form.notes }}
+                                </div>
+                                <div class="col-12 text-end mt-2">
+                                    <button type="submit" class="btn btn-royal btn-sm">حفظ السعر</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                    {% endif %}
+
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>طريقة التوضيب</th>
+                                <th>السعر / كغ</th>
+                                <th>تاريخ السريان</th>
+                                {% if user.is_manager %}<th>إجراءات</th>{% endif %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for rate in rates %}
+                            <tr>
+                                <td class="fw-bold">{{ rate.get_method_display }}</td>
+                                <td class="text-success fw-bold">{{ rate.rate_per_kg }} د.أ</td>
+                                <td>{{ rate.effective_date }}</td>
+                                {% if user.is_manager %}
+                                <td>
+                                    {% include "core/_delete_button.html" with app_label="operations" model_name="traderpackingrate" object_id=rate.pk title="حذف سعر التوضيب بشكل منفرد" %}
+                                </td>
+                                {% endif %}
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="4" class="text-center py-3 text-muted small">لم يتم تسجيل أسعار مخصصة. سيتم تطبيق السعر الافتراضي.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 3. صناديق المزرعة المسجّلة باسم التاجر -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="fw-bold mb-0 text-dark">
+                        <i class="bi bi-truck-front text-success me-2"></i> صناديق المزرعة الخاصة بالتاجر
+                    </h5>
+                    <div class="d-flex gap-2">
+                        <a href="{% url 'farm_boxes_dashboard' %}?trader={{ trader.pk }}" class="btn btn-outline-secondary btn-sm">
+                            <i class="bi bi-funnel"></i> عرض الكل
+                        </a>
+                        <a href="{% url 'farm_box_record_create' %}?trader={{ trader.pk }}" class="btn btn-outline-royal btn-sm">
+                            <i class="bi bi-plus-lg"></i> تسجيل صناديق
+                        </a>
+                    </div>
+                </div>
+                <div class="card-body p-3">
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <div class="bg-light rounded border p-2 text-center">
+                                <div class="small text-muted">إجمالي الصناديق الواردة</div>
+                                <div class="fs-5 fw-bold text-primary">{{ farm_box_incoming }}</div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="bg-light rounded border p-2 text-center">
+                                <div class="small text-muted">إجمالي الفارغ الناتج</div>
+                                <div class="fs-5 fw-bold text-success">{{ farm_box_empty }}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>السيارة / الدفعة</th>
+                                <th>نوع الصندوق</th>
+                                <th>وارد</th>
+                                <th>فارغ ناتج</th>
+                                <th>إجراء</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in farm_box_records %}
+                            <tr>
+                                <td class="fw-bold">{{ r.truck_receipt.lot_number }}</td>
+                                <td>{{ r.truck_receipt.box_type.name }}</td>
+                                <td class="fw-bold text-primary">{{ r.incoming_count }}</td>
+                                <td class="fw-bold text-success">{{ r.empty_count }}</td>
+                                <td>
+                                    <a href="{% url 'farm_box_record_edit' r.pk %}" class="btn btn-outline-primary btn-sm">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="5" class="text-center py-3 text-muted small">
+                                    لم تُسجَّل صناديق مزرعة لهذا التاجر بعد.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- القسم الأيسر: فواتير التاجر مقسمة حسب السنة ونوع البضاعة -->
+        <div class="col-lg-7">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header card-header-royal py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="fw-bold mb-0">
+                        <i class="bi bi-receipt me-2"></i> فواتير التاجر (مقسمة حسب السنة ونوع البضاعة)
+                    </h5>
+                    <a href="{% url 'invoice_create' %}?trader={{ trader.id }}" class="btn btn-light btn-sm fw-bold">
+                        <i class="bi bi-plus-circle me-1"></i> إنشاء فاتورة جديدة
+                    </a>
+                </div>
+                <div class="card-body p-4 bg-white">
+                    {% if invoices_by_year %}
+                        {% for year, crops_dict in invoices_by_year.items %}
+                        <div class="border rounded p-3 mb-3 bg-light">
+                            <div class="d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom">
+                                <h5 class="fw-bold text-dark mb-0"><i class="bi bi-calendar-check me-2 text-success"></i> فواتير سنة {{ year }}</h5>
+                                <span class="badge bg-secondary">{{ crops_dict|length }} أنواع بضاعة</span>
+                            </div>
+
+                            {% for crop_name, inv_list in crops_dict.items %}
+                            <div class="bg-white p-3 rounded border mb-2">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <h6 class="fw-bold text-success mb-0">
+                                        <i class="bi bi-basket me-1"></i> بضاعة: {{ crop_name }}
+                                    </h6>
+                                    <a href="{% url 'truck_create' %}?trader={{ trader.id }}&crop={{ inv_list.0.crop.id }}" class="btn btn-outline-success btn-sm py-0 px-2 small">
+                                        <i class="bi bi-plus"></i> إضافة سيارة لهذا الصنف
+                                    </a>
+                                </div>
+
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover align-middle mb-0">
+                                        <thead class="table-light small">
+                                            <tr>
+                                                <th>رقم الفاتورة</th>
+                                                <th>طريقة التوضيب</th>
+                                                <th>الموضب (كغ)</th>
+                                                <th>الإجمالي (دينار)</th>
+                                                <th>الحالة</th>
+                                                <th>إجراء</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for inv in inv_list %}
+                                            <tr>
+                                                <td class="fw-bold">
+                                                    <a href="{% url 'invoice_detail' inv.pk %}" class="text-dark text-decoration-none">
+                                                        {{ inv.invoice_number }}
+                                                    </a>
+                                                </td>
+                                                <td>{{ inv.get_packing_method_display }}</td>
+                                                <td>{{ inv.total_packed_kg }} كغ</td>
+                                                <td class="fw-bold text-success">{{ inv.grand_total }} د.أ</td>
+                                                <td>
+                                                    {% if inv.status == 'APPROVED' %}
+                                                    <span class="badge bg-success">معتمدة</span>
+                                                    {% elif inv.status == 'PAID' %}
+                                                    <span class="badge bg-primary">مسددة</span>
+                                                    {% else %}
+                                                    <span class="badge bg-warning text-dark">مسودة</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td>
+                                                    <a href="{% url 'invoice_detail' inv.pk %}" class="btn btn-outline-royal btn-sm py-0 px-2">عرض</a>
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                    <div class="text-center py-4 text-muted">
+                        <i class="bi bi-receipt fs-1 d-block mb-2 text-secondary"></i>
+                        لا توجد فواتير منشأة لهذا التاجر بعد. انقر على "إنشاء فاتورة جديدة" للبدء.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% attachments trader %}
+</div>
+{% endblock %}

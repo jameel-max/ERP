@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+
+{% block title %}الصناديق الواردة من المزرعة | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-success"><i class="bi bi-truck-front me-2"></i> الصناديق الواردة من المزرعة</h3>
+            <p class="text-muted small mb-0">
+                قسم مستقل تماماً: كل صناديق مسجّلة <strong>باسم التاجر صاحب السيارة</strong>، مع عدد الصناديق الواردة
+                وعدد الصناديق الفارغة الناتجة عن تفريغ البضاعة الخام.
+                لا يختلط هذا الرصيد مع مخزون صناديق ومواد التغليف الخاصة بالشركة.
+            </p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{% url 'farm_box_type_create' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-plus-square me-1"></i> نوع صندوق وارد جديد
+            </a>
+            {% if selected_trader %}
+            <a href="{% url 'farm_box_record_create' %}?trader={{ selected_trader.pk }}" class="btn btn-royal">
+                <i class="bi bi-plus-circle me-1"></i> تسجيل صناديق لـ {{ selected_trader.name }}
+            </a>
+            {% else %}
+            <a href="{% url 'farm_box_record_create' %}" class="btn btn-royal">
+                <i class="bi bi-plus-circle me-1"></i> تسجيل صناديق سيارة
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- فلتر التاجر -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+        <form method="get" class="d-flex align-items-center gap-2">
+            <label class="small fw-bold mb-0">التاجر:</label>
+            <select name="trader" class="form-select form-select-sm" onchange="this.form.submit()" style="min-width: 240px;">
+                <option value="">كل التجار</option>
+                {% for t in trader_totals %}
+                <option value="{{ t.trader_id }}" {% if selected_trader and selected_trader.pk == t.trader_id %}selected{% endif %}>
+                    {{ t.trader__name }} ({{ t.trader__code }})
+                </option>
+                {% endfor %}
+            </select>
+            {% if selected_trader %}
+            <a href="{% url 'farm_boxes_dashboard' %}" class="btn btn-sm btn-outline-secondary">إلغاء الفلتر</a>
+            {% endif %}
+        </form>
+        {% if selected_trader %}
+        <div class="alert alert-info mb-0 py-2 px-3 small">
+            تعرض الآن صناديق التاجر: <strong>{{ selected_trader.name }}</strong>
+            — <a href="{% url 'trader_detail' selected_trader.pk %}" class="fw-bold">ملف التاجر</a>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- ملخص إجمالي -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="text-muted small fw-bold">إجمالي الصناديق الواردة من المزرعة</div>
+                    <div class="fs-2 fw-bold text-primary">{{ total_incoming }}</div>
+                    <div class="text-muted small">
+                        {% if selected_trader %}لهذا التاجر{% else %}حسب السجلات المسجّلة{% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="text-muted small fw-bold">إجمالي الصناديق الفارغة الناتجة</div>
+                    <div class="fs-2 fw-bold text-success">{{ total_empty }}</div>
+                    <div class="text-muted small">الناتجة عن تفريغ البضاعة الخام</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <div class="text-muted small fw-bold">عدد السيارات المسجّلة</div>
+                    <div class="fs-2 fw-bold text-dark">{{ records|length }}</div>
+                    <div class="text-muted small">سيارة لها سجل صناديق مزرعة</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ملخص الصناديق لكل تاجر -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white py-3">
+            <h5 class="mb-0 fw-bold"><i class="bi bi-people-fill me-2 text-success"></i> ملخص الصناديق حسب التاجر</h5>
+            <small class="text-muted">كل صناديق المزرعة مسجّلة باسم تاجرها؛ لا تُخلط بين التجار.</small>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>التاجر</th>
+                        <th>الرمز</th>
+                        <th>عدد السيارات</th>
+                        <th>إجمالي الوارد</th>
+                        <th>إجمالي الفارغ الناتج</th>
+                        <th>عرض</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for t in trader_totals %}
+                    <tr class="{% if selected_trader and selected_trader.pk == t.trader_id %}table-success{% endif %}">
+                        <td class="fw-bold">
+                            <a href="{% url 'trader_detail' t.trader_id %}" class="text-decoration-none">{{ t.trader__name }}</a>
+                        </td>
+                        <td>{{ t.trader__code }}</td>
+                        <td>{{ t.trucks_count }}</td>
+                        <td class="fw-bold text-primary">{{ t.total_incoming|default:0 }}</td>
+                        <td class="fw-bold text-success">{{ t.total_empty|default:0 }}</td>
+                        <td>
+                            <a href="?trader={{ t.trader_id }}" class="btn btn-outline-success btn-sm">
+                                <i class="bi bi-funnel me-1"></i> عرض صناديقه
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox fs-4 d-block mb-1 text-secondary"></i>
+                            لا توجد سجلات صناديق مزرعة بعد.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- رصيد فارغ لكل نوع (قسم مستقل) -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white py-3">
+            <h5 class="mb-0 fw-bold"><i class="bi bi-stack me-2 text-success"></i> رصيد الصناديق الفارغة حسب النوع</h5>
+            <small class="text-muted">مخزون مستقل عن مخزون صناديق الشركة ومواد التغليف.</small>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>نوع الصندوق الوارد</th>
+                        <th>الوصف / المقاس</th>
+                        <th>الوزن الفارغ</th>
+                        <th>إجمالي الوارد</th>
+                        <th>إجمالي الفارغ الناتج</th>
+                        <th>الحالة</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for t in type_totals %}
+                    <tr>
+                        <td class="fw-bold">{{ t.name }}</td>
+                        <td>{{ t.description|default:"—" }}</td>
+                        <td>{{ t.tare_weight }} كغ</td>
+                        <td class="fw-bold text-primary">{{ t.total_incoming|default:0 }}</td>
+                        <td class="fw-bold text-success">{{ t.total_empty|default:0 }}</td>
+                        <td>
+                            {% if t.is_active %}
+                            <span class="badge bg-success-subtle text-success">نشط</span>
+                            {% else %}
+                            <span class="badge bg-secondary">غير نشط</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{% url 'farm_box_type_edit' t.pk %}" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-pencil me-1"></i> تعديل
+                            </a>
+                            {% include "core/_delete_button.html" with app_label="boxes" model_name="farmboxtype" object_id=t.pk %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox fs-4 d-block mb-1 text-secondary"></i>
+                            لا توجد أنواع صناديق واردة من المزرعة بعد. أضف نوعاً أولاً.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- سجلات السيارات -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white py-3">
+            <h5 class="mb-0 fw-bold"><i class="bi bi-list-check me-2 text-success"></i> سجل الصناديق لكل سيارة</h5>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>رقم الدفعة</th>
+                        <th>التاجر</th>
+                        <th>نوع البضاعة</th>
+                        <th>نوع الصندوق الوارد</th>
+                        <th>عدد الوارد</th>
+                        <th>عدد الفارغ الناتج</th>
+                        <th>تاريخ التسجيل</th>
+                        <th>سجّلها</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in records %}
+                    <tr>
+                        <td>
+                            <a href="{% url 'truck_detail' r.truck_receipt.pk %}" class="fw-bold text-decoration-none">
+                                {{ r.truck_receipt.lot_number }}
+                            </a>
+                        </td>
+                        <td>{{ r.truck_receipt.trader.name }}</td>
+                        <td>{{ r.truck_receipt.crop.name }}</td>
+                        <td>{{ r.truck_receipt.box_type.name }}</td>
+                        <td class="fw-bold text-primary">{{ r.incoming_count }}</td>
+                        <td class="fw-bold text-success">{{ r.empty_count }}</td>
+                        <td class="small text-muted">{{ r.created_at|date:"Y-m-d H:i" }}</td>
+                        <td class="small">{% if r.recorded_by %}{{ r.recorded_by.get_full_name|default:r.recorded_by.username }}{% else %}—{% endif %}</td>
+                        <td>
+                            <a href="{% url 'farm_box_record_edit' r.pk %}" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-pencil me-1"></i> تعديل
+                            </a>
+                            {% include "core/_delete_button.html" with app_label="boxes" model_name="farmboxrecord" object_id=r.pk %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="9" class="text-center py-4 text-muted">
+                            <i class="bi bi-inbox fs-4 d-block mb-1 text-secondary"></i>
+                            لا توجد سجلات بعد. اضغط «تسجيل صناديق سيارة».
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {% if trucks_without_record %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white py-3">
+            <h5 class="mb-0 fw-bold text-secondary"><i class="bi bi-hourglass-split me-2"></i> سيارات بانتظار تسجيل صناديق المزرعة</h5>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>رقم الدفعة</th>
+                        <th>التاجر</th>
+                        <th>نوع البضاعة</th>
+                        <th>نوع الصناديق (من المزرعة)</th>
+                        <th>عدد الصناديق في الاستلام</th>
+                        <th>إجراء</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for truck in trucks_without_record %}
+                    <tr>
+                        <td class="fw-bold">{{ truck.lot_number }}</td>
+                        <td>{{ truck.trader.name }}</td>
+                        <td>{{ truck.crop.name }}</td>
+                        <td>{{ truck.box_type.name }}</td>
+                        <td>{{ truck.box_count }}</td>
+                        <td>
+                            <a href="{% url 'farm_box_record_create_for_truck' truck.pk %}" class="btn btn-success btn-sm">
+                                <i class="bi bi-plus-lg me-1"></i> تسجيل
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

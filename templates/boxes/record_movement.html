@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}تسجيل حركة صناديق | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-royal py-3">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-arrow-left-right me-2"></i> تسجيل حركة صناديق فارغة</h5>
+                </div>
+                <div class="card-body p-4 bg-white">
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">التاجر *</label>
+                                {{ form.trader }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">نوع الصندوق *</label>
+                                {{ form.box_type }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">نوع الحركة *</label>
+                                {{ form.transaction_type }}
+                                <small class="text-muted">صادر للتاجر (صرف للتوضيب) أو وارد من التاجر (إرجاع)</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">العدد / الكمية *</label>
+                                {{ form.quantity }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">المصدر</label>
+                                {{ form.source }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">الوجهة</label>
+                                {{ form.destination }}
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">السبب / البيان والملاحظات</label>
+                                {{ form.reason }}
+                            </div>
+                        </div>
+
+                        <hr class="my-4">
+                        <div class="d-flex justify-content-between">
+                            <a href="{% url 'boxes_dashboard' %}" class="btn btn-outline-secondary">إلغاء</a>
+                            <button type="submit" class="btn btn-royal px-4">
+                                <i class="bi bi-check-circle me-1"></i> حفظ الحركة وتحديث الأرصدة
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

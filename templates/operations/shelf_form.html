@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-royal py-3">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-layers me-2"></i> {{ title }}</h5>
+                </div>
+                <div class="card-body p-4 bg-white">
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">رقم السيخ / الرف *</label>
+                                {{ form.shelf_number }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">السعة (طبلية) — اختياري</label>
+                                {{ form.capacity_pallets }}
+                                {% if form.capacity_pallets.help_text %}
+                                <small class="text-muted d-block mt-1">{{ form.capacity_pallets.help_text }}</small>
+                                {% endif %}
+                                {% if not store.capacity_pallets %}
+                                <small class="text-danger d-block mt-1">تنبيه: سعة البراد «{{ store.name }}» غير محددة، فلن يمتلئ أي سيخ ولن تنتقل الطبالي تلقائياً. حدّد سعة البراد أو سعة السيخ صراحةً.</small>
+                                {% endif %}
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">ملاحظات</label>
+                                {{ form.notes }}
+                            </div>
+                            {% if form.errors %}
+                            <div class="col-12"><div class="alert alert-danger mb-0">{{ form.errors }}</div></div>
+                            {% endif %}
+                        </div>
+                        <div class="d-flex justify-content-between mt-4">
+                            <a href="{% url 'cold_store_list' %}" class="btn btn-outline-secondary">
+                                <i class="bi bi-arrow-right me-1"></i> رجوع
+                            </a>
+                            <button type="submit" class="btn btn-royal">
+                                <i class="bi bi-save me-1"></i> حفظ السيخ
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

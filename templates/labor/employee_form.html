@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-royal py-3">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-person-badge me-2"></i> {{ title }}</h5>
+                </div>
+                <div class="card-body p-4 bg-white">
+                    <form method="post">
+                        {% csrf_token %}
+                        {% if form.non_field_errors %}
+                        <div class="alert alert-danger">
+                            {% for err in form.non_field_errors %}<div>{{ err }}</div>{% endfor %}
+                        </div>
+                        {% endif %}
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">اسم الموظف *</label>
+                                {{ form.name }}
+                                {% if form.name.errors %}<div class="text-danger small">{{ form.name.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">المسمى الوظيفي</label>
+                                {{ form.job_title }}
+                                <small class="text-muted">مثال: محاسب، حارس، سائق، إداري</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">رقم الهاتف</label>
+                                {{ form.phone }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">الراتب الشهري (دينار) *</label>
+                                {{ form.monthly_salary }}
+                                {% if form.monthly_salary.errors %}<div class="text-danger small">{{ form.monthly_salary.errors }}</div>{% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">تاريخ التعيين</label>
+                                {{ form.hire_date }}
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check form-switch mt-4">
+                                    {{ form.is_active }}
+                                    <label class="form-check-label fw-bold me-2">على رأس العمل حالياً</label>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">ملاحظات</label>
+                                {{ form.notes }}
+                            </div>
+                        </div>
+
+                        <div class="alert alert-light border mt-4 small text-muted">
+                            <i class="bi bi-info-circle me-1 text-primary"></i>
+                            هذا القسم مستقل عن الورش تماماً — الموظف هنا براتب شهري ثابت، وليس عاملاً بالأجرة اليومية.
+                        </div>
+
+                        <hr class="my-4">
+                        <div class="d-flex justify-content-between">
+                            {% if employee %}
+                            <a href="{% url 'employee_detail' employee.pk %}" class="btn btn-outline-secondary">إلغاء</a>
+                            {% else %}
+                            <a href="{% url 'employee_list' %}" class="btn btn-outline-secondary">إلغاء</a>
+                            {% endif %}
+                            <button type="submit" class="btn btn-royal px-4">
+                                <i class="bi bi-save me-1"></i> حفظ الموظف
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}سجل تبريد {{ pallet.packed_pallet_code }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 mt-4 mb-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold mb-0 text-primary"><i class="bi bi-clock-history me-2"></i> سجل فترات تبريد الطبلية الموضبة</h3>
+            <p class="text-muted small mb-0">
+                {{ pallet.packed_pallet_code }} — {{ pallet.trader.name }} ({{ pallet.crop.name }} / {{ pallet.size_name }})
+            </p>
+        </div>
+        <a href="{% url 'packed_pallets_list' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-right me-1"></i> رجوع للطبالي الموضبة
+        </a>
+    </div>
+
+    <div class="row g-3 mb-4 text-center">
+        <div class="col-md-3">
+            <div class="bg-white p-3 rounded border shadow-sm">
+                <span class="text-muted small fw-bold">الحالة الحالية</span>
+                <h5 class="fw-bold mb-0">{{ pallet.get_status_display }}</h5>
+                <small class="text-muted">{{ pallet.location_display }}</small>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="bg-white p-3 rounded border shadow-sm">
+                <span class="text-muted small fw-bold">إجمالي أيام التبريد</span>
+                <h5 class="fw-bold mb-0 text-primary">{{ total_days }} يوم</h5>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="bg-white p-3 rounded border shadow-sm">
+                <span class="text-muted small fw-bold">الأجرة اليومية المعتمدة</span>
+                <h5 class="fw-bold mb-0">{{ rate }} دينار / يوم</h5>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="bg-white p-3 rounded border shadow-sm">
+                <span class="text-muted small fw-bold">إجمالي أجرة التبريد</span>
+                <h5 class="fw-bold mb-0 text-success">{{ total_fee }} دينار</h5>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>نوع الحركة</th>
+                        <th>البراد</th>
+                        <th>السيخ</th>
+                        <th>وقت الإدخال</th>
+                        <th>وقت الإخراج</th>
+                        <th>عدد الأيام</th>
+                        <th>أجرة الفترة</th>
+                        <th>المستخدم</th>
+                        <th>ملاحظات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr>
+                        <td>
+                            {% if row.log.movement_type == 'IN' %}
+                            <span class="badge bg-info text-dark">إدخال</span>
+                            {% elif row.log.movement_type == 'OUT' %}
+                            <span class="badge bg-secondary">إخراج</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">نقل بين الأسياخ</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ row.log.cold_store.name|default:"—" }}</td>
+                        <td>{% if row.log.shelf %}السيخ {{ row.log.shelf.shelf_number }}{% else %}—{% endif %}</td>
+                        <td><small>{{ row.log.entered_at|date:"Y-m-d H:i" }}</small></td>
+                        <td>
+                            {% if row.log.exited_at %}
+                            <small>{{ row.log.exited_at|date:"Y-m-d H:i" }}</small>
+                            {% else %}
+                            <span class="badge bg-success">مفتوحة الآن</span>
+                            {% endif %}
+                        </td>
+                        <td class="fw-bold">{{ row.days }}</td>
+                        <td>{{ row.fee }} دينار</td>
+                        <td>{{ row.log.moved_by|default:"—" }}</td>
+                        <td><small class="text-muted">{{ row.log.notes|default:"" }}</small></td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="9" class="text-center py-5 text-muted">
+                            لا توجد فترات تبريد مسجّلة لهذه الطبلية بعد.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
