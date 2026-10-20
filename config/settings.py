@@ -27,6 +27,31 @@ DEBUG = os.environ.get('DJANGO_DEBUG', 'True').strip().lower() in ('1', 'true', 
 
 # اتركه '*' للتطوير، وفي الإنتاج اضبط DJANGO_ALLOWED_HOSTS=example.com,www.example.com
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '*').split(',') if h.strip()]
+
+# النطاقات الموثوقة لطلبات POST (CSRF).
+# منذ Django 4.0، أي طلب POST قادم عبر HTTPS يجب أن يكون أصله ضمن هذه القائمة
+# وإلا يُرفض برسالة: Origin checking failed ... does not match any trusted origins.
+# عند النشر خلف reverse-proxy (Render / Fly / nginx) اضبط المتغير:
+#   DJANGO_CSRF_TRUSTED_ORIGINS=https://royal-fruit-erp.onrender.com,https://example.com
+CSRF_TRUSTED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(',')
+    if o.strip()
+]
+
+CSRF_TRUSTED_ORIGINS.append(
+    'https://royal-fruit-erp.onrender.com'
+)
+
+CSRF_TRUSTED_ORIGINS = list(set(CSRF_TRUSTED_ORIGINS))
+# عند الإنتاج: نُضيف تلقائياً نطاقات ALLOWED_HOSTS غير المحلية بصيغة https (تسهيلاً للنشر)
+if not DEBUG:
+    for _host in ALLOWED_HOSTS:
+        if _host and _host != '*' and not _host.startswith('.'):
+            _origin = f'https://{_host}'
+            if _origin not in CSRF_TRUSTED_ORIGINS:
+                CSRF_TRUSTED_ORIGINS.append(_origin)
+
 # إعدادات أمان للإنتاج (تُفعّل تلقائياً عند DEBUG=False)
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
