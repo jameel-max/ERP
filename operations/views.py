@@ -6,6 +6,7 @@ from django.http import JsonResponse
 from django.db.models import Sum, Count, Q
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from decimal import Decimal
 import json
 
@@ -151,6 +152,19 @@ def trader_add_rate(request, pk):
 @login_required
 def truck_list(request):
     trucks = TruckReceipt.objects.select_related('trader', 'crop', 'box_type', 'cold_store', 'shelf').order_by('-created_at')
+
+    # فلتر البحث: برقم الدفعة أو اسم التاجر، و/أو بتاريخ الوصول
+    q = (request.GET.get('q') or '').strip()
+    date_str = (request.GET.get('date') or '').strip()
+    if q:
+        trucks = trucks.filter(
+            Q(lot_number__icontains=q) | Q(trader__name__icontains=q) | Q(trader__code__icontains=q)
+        )
+    if date_str:
+        parsed = parse_date(date_str)
+        if parsed:
+            trucks = trucks.filter(arrival_date=parsed)
+
     return render(request, 'operations/truck_list.html', {'trucks': trucks})
 
 

@@ -2,8 +2,19 @@
 
 {% block title %}السيارات ووصول البضاعة | {{ company_name_en }}{% endblock %}
 
+{% block breadcrumb %}
+<div class="container-fluid px-4 pt-3 no-print">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item"><a href="{% url 'home' %}" class="text-success text-decoration-none"><i class="bi bi-house-fill"></i> الرئيسية</a></li>
+            <li class="breadcrumb-item active">السيارات ووصول البضاعة</li>
+        </ol>
+    </nav>
+</div>
+{% endblock %}
+
 {% block content %}
-<div class="container-fluid px-4 mt-4">
+<div class="container-fluid px-4 mt-3">
     <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
         <div>
             <h3 class="fw-bold mb-0 text-success"><i class="bi bi-truck me-2"></i> سجل استلام السيارات (وصول البضاعة)</h3>
@@ -12,6 +23,29 @@
         <a href="{% url 'truck_create' %}" class="btn btn-royal">
             <i class="bi bi-plus-circle me-1"></i> استلام سيارة جديدة
         </a>
+    </div>
+
+    <!-- فلتر البحث -->
+    <div class="card shadow-sm mb-3 no-print">
+        <div class="card-body py-2">
+            <form method="get" class="row g-2 align-items-center" data-ajax="0">
+                <div class="col-sm-4">
+                    <input type="text" name="q" class="form-control form-control-sm" placeholder="🔍 بحث برقم الدفعة أو اسم التاجر..." value="{{ request.GET.q }}">
+                </div>
+                <div class="col-sm-3">
+                    <input type="date" name="date" class="form-control form-control-sm" value="{{ request.GET.date }}" title="فلتر بتاريخ الوصول">
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-sm btn-royal"><i class="bi bi-search me-1"></i> بحث</button>
+                    {% if request.GET.q or request.GET.date %}
+                    <a href="{% url 'truck_list' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle me-1"></i> مسح</a>
+                    {% endif %}
+                </div>
+                <div class="col-auto ms-auto">
+                    <span class="text-muted small">عدد النتائج: <strong>{{ trucks|length }}</strong></span>
+                </div>
+            </form>
+        </div>
     </div>
 
     <div class="card shadow-sm">
@@ -23,13 +57,11 @@
                         <th>تاريخ القدوم</th>
                         <th>التاجر</th>
                         <th>البضاعة</th>
-                        <th>نوع وعدد الصناديق</th>
+                        <th>الصناديق</th>
                         <th>الطبالي</th>
-                        <th>القائم</th>
-                        <th>الفارغ</th>
                         <th>الصافي الظاهر</th>
                         <th>الصافي المحسوب</th>
-                        <th>الموقع المولد</th>
+                        <th>الموقع</th>
                         <th>الحالة</th>
                         <th>إجراءات</th>
                     </tr>
@@ -54,8 +86,6 @@
                             <span class="badge bg-info text-dark border" title="بضاعة بكمات: لا يُخصم وزن الطبالي">بكمات</span>
                             {% endif %}
                         </td>
-                        <td>{{ truck.gross_weight }} كغ</td>
-                        <td>{{ truck.tare_weight }} كغ</td>
                         <td>{{ truck.apparent_net_weight }} كغ</td>
                         <td class="fw-bold text-success">{{ truck.calculated_net_weight }} كغ</td>
                         <td><small class="text-muted">{{ truck.auto_description|default:truck.cold_store.name }}</small></td>
@@ -76,9 +106,13 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="13" class="text-center py-5 text-muted">
+                        <td colspan="11" class="text-center py-5 text-muted">
                             <i class="bi bi-truck fs-1 d-block mb-2 text-secondary"></i>
+                            {% if request.GET.q or request.GET.date %}
+                            لا توجد نتائج مطابقة لبحثك. <a href="{% url 'truck_list' %}" class="text-success fw-bold">عرض جميع السيارات</a>
+                            {% else %}
                             لا توجد سيارات مسجلة حتى الآن. يمكنك <a href="{% url 'truck_create' %}" class="text-success fw-bold">استلام أول سيارة الآن</a>.
+                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}
