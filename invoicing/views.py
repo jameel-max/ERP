@@ -48,11 +48,13 @@ def invoice_create(request):
             crop = form.cleaned_data['crop']
             method = form.cleaned_data['packing_method']
 
-            # جلب سعر التوضيب الساري للتاجر لهذه الطريقة
+            # جلب سعر التوضيب الساري للتاجر لهذه الطريقة.
+            # نستخدم تاريخ اليوم المحلي (توقيت الأعمال) لا تاريخ UTC، حتى لا يُتجاهل
+            # سعر يبدأ سريانه اليوم أثناء ساعات المساء/الليل بتوقيت النظام.
             rate_obj = TraderPackingRate.objects.filter(
                 trader=trader,
                 method=method,
-                effective_date__lte=timezone.now().date()
+                effective_date__lte=timezone.localdate()
             ).order_by('-effective_date').first()
 
             # سعر التوضيب: أولاً سعر التاجر الساري، وإلا السعر الافتراضي من إعدادات النظام

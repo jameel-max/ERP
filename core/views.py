@@ -55,7 +55,7 @@ def home(request):
     - جرس الإشعارات
     - روابط سريعة
     """
-    today = timezone.now().date()
+    today = timezone.localdate()
     settings_obj = SystemSetting.get_settings()
 
     # نخزّن سياق الصفحة الرئيسية (مؤشرات تجميعية عامة) لمدة قصيرة.
@@ -252,6 +252,20 @@ def _safe_next(request, candidate=None):
     return reverse('home')
 
 
+def _delete_note(app_label, model_name):
+    """
+    ملاحظة توضيحية اختيارية تُعرض في صفحة تأكيد الحذف لبعض الأنواع التي
+    يعكس حذفها آثاراً على المخزون/الطبالي.
+    """
+    if (app_label, model_name) == ('packing', 'packingsession'):
+        return (
+            'حذف عملية التوضيب يعكس أثرها تلقائياً: تُعاد كل الطبالي المصدر إلى البراد '
+            'في نفس السيخ، وتُحذف الطبالي الموضّبة الناتجة، ويُحرَّر رصيد صناديق الفارغ '
+            'المستهلك في هذه الجلسة.'
+        )
+    return ''
+
+
 def _related_summary(obj):
     """ملخّص السجلات المرتبطة التي ستتأثر بالحذف (للعرض في صفحة التأكيد)."""
     summary = []
@@ -323,6 +337,12 @@ def generic_delete(request, app_label, model_name, pk):
         obj_pk = obj.pk
         try:
             with transaction.atomic():
+                # تمرير المستخدم الحالي لبعض الموديلات التي تعكس أثرها عند الحذف
+                # (مثل جلسة التوضيب التي تُرجع طباليها إلى البراد).
+                try:
+                    obj._deleted_by = request.user
+                except Exception:  # noqa: BLE001
+                    pass
                 obj.delete()
         except (ProtectedError, RestrictedError) as exc:
             protected = [str(p) for p in getattr(exc, 'protected_objects', []) or []]
@@ -355,6 +375,7 @@ def generic_delete(request, app_label, model_name, pk):
         'related': related,
         'blocking': blocking,
         'next_url': _safe_next(request),
+        'delete_note': _delete_note(app_label, model_name),
     })
 
 

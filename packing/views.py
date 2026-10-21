@@ -10,6 +10,7 @@ import json
 from core.permissions import accountant_required, manager_required
 from core.models import AuditLog, SystemSetting
 from operations.models import BoxType, Pallet, Trader, ColdStore, Shelf, PackagingGroup
+from boxes.models import FarmBoxType
 from operations.qr_utils import generate_qr_base64, build_scan_url
 from operations.move_utils import (
     error_response, move_payload, resolve_target, success_response, validation_error_message,
@@ -76,6 +77,16 @@ def packing_detail(request, pk):
         is_active=True, group__isnull=False
     ).select_related('group').order_by('group__name', 'name')
 
+    # صناديق الفارغ (من المزرعة) المتاحة لاستهلاكها في التوضيب:
+    # المتاح = الفارغ الناتج عن التفريغ − المسلَّم − المستهلك سابقاً في التوضيب.
+    from boxes.services import EmptyBoxService
+    available_farm_empty = EmptyBoxService.available_empty()
+    farm_box_types = []
+    for fb in FarmBoxType.objects.filter(is_active=True).order_by('name'):
+        avail = available_farm_empty.get(fb.pk, 0)
+        if avail > 0:
+            farm_box_types.append({'obj': fb, 'available': avail})
+
     packed_pallets_with_qr = []
     for p in session.packed_pallets.all():
         packed_pallets_with_qr.append({
@@ -90,6 +101,7 @@ def packing_detail(request, pk):
         'packaging_items': packaging_items,
         'packaging_charge_total': PackingService.packaging_charge_total_for_session(session),
         'packed_pallets_with_qr': packed_pallets_with_qr,
+        'farm_box_types': farm_box_types,
     }
     return render(request, 'packing/packing_detail.html', context)
 
@@ -149,6 +161,28 @@ def packing_finalize(request, pk):
                     'quantity': qty,
                 })
 
+            # قراءة صناديق الفارغ (من المزرعة) المستهلكة: كل صنف مرتبط برقم سطر الناتج
+            fe_output_idx = request.POST.getlist('fe_output_idx[]')
+            fe_type_ids = request.POST.getlist('fe_type[]')
+            fe_qtys = request.POST.getlist('fe_qty[]')
+            for k in range(len(fe_type_ids)):
+                if not fe_type_ids[k]:
+                    continue
+                try:
+                    out_idx = int(fe_output_idx[k]) if k < len(fe_output_idx) else 0
+                except (TypeError, ValueError):
+                    out_idx = 0
+                try:
+                    fe_qty = int(fe_qtys[k] or 0)
+                except (TypeError, ValueError):
+                    fe_qty = 0
+                if fe_qty <= 0 or out_idx < 0 or out_idx >= len(outputs_data):
+                    continue
+                outputs_data[out_idx].setdefault('farm_empty_items', []).append({
+                    'farm_box_type': fe_type_ids[k],
+                    'quantity': fe_qty,
+                })
+
             # قراءة الهالك
             waste_types = request.POST.getlist('waste_type[]')
             waste_weights = request.POST.getlist('waste_weight[]')
@@ -180,6 +214,44 @@ def packing_finalize(request, pk):
             messages.error(request, f'خطأ أثناء الحفظ: {str(e)}')
 
     return redirect('packing_detail', pk=session.pk)
+
+
+@login_required
+@accountant_required
+def packing_edit(request, pk):
+    """
+    تعديل البيانات الأساسية لعملية توضيب (مسودة فقط):
+    التاجر، البضاعة، طريقة التوضيب، الورشة، والطبالي المصدر.
+    """
+    session = get_object_or_404(PackingSession, pk=pk)
+    if session.status != PackingSession.Status.DRAFT:
+        messages.warning(request, 'لا يمكن تعديل جلسة توضيب بدأت أو اكتملت.')
+        return redirect('packing_detail', pk=session.pk)
+
+    if request.method == 'POST':
+        form = StartPackingSessionForm(request.POST, instance=session)
+        if form.is_valid():
+            try:
+                PackingService.update_packing_session(
+                    session=session,
+                    trader=form.cleaned_data['trader'],
+                    crop=form.cleaned_data['crop'],
+                    packing_method=form.cleaned_data['packing_method'],
+                    source_pallets=form.cleaned_data['source_pallets'],
+                    workshop_name=form.cleaned_data['workshop_name'],
+                    notes=form.cleaned_data.get('notes'),
+                    user=request.user,
+                )
+                messages.success(request, 'تم تحديث بيانات عملية التوضيب بنجاح.')
+                return redirect('packing_detail', pk=session.pk)
+            except ValidationError as e:
+                messages.error(request, ' '.join(e.messages) if e.messages else str(e))
+            except Exception as e:  # noqa: BLE001
+                messages.error(request, f'خطأ أثناء التعديل: {str(e)}')
+    else:
+        form = StartPackingSessionForm(instance=session)
+
+    return render(request, 'packing/packing_edit.html', {'form': form, 'session': session})
 
 
 @login_required

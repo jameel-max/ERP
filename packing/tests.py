@@ -368,7 +368,159 @@ class Phase2ComprehensiveTests(TestCase):
         self.assertEqual(packed.net_weight_kg, Decimal('100.000'))
         self.assertEqual(packed.box_count, 20)
 
-    # ==================== خدمة التبريد اليومية للطبالي الموضبة ====================
+    def test_packing_finalize_view_records_farm_empty_consumption(self):
+        """
+        إدخال نواتج التوضيب مع صناديق فارغ (من المزرعة) يُخصم عددها من الرصيد المتاح،
+        ويُسجَّل الاستهلاك مرتبطاً بجلسة التوضيب.
+        """
+        from boxes.models import FarmBoxRecord
+
+        FarmBoxRecord.objects.create(
+            trader=self.trader1, truck_receipt=self.truck,
+            incoming_count=100, empty_count=100, recorded_by=self.accountant,
+        )
+
+        session = PackingService.start_packing_session(
+            trader=self.trader1,
+            crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet1],
+            user=self.accountant,
+        )
+        client = Client()
+        client.force_login(self.accountant)
+        resp = client.post(reverse('packing_finalize', args=[session.pk]), {
+            'size_name[]': ['P1 Standard'],
+            'box_type[]': [str(self.box_blue.id)],
+            'box_count[]': ['20'],
+            'net_weight_kg[]': ['100.000'],
+            'waste_type[]': ['تالف'],
+            'waste_weight[]': ['0.000'],
+            'fe_output_idx[]': ['0'],
+            'fe_type[]': [str(self.farm_box_blue.id)],
+            'fe_qty[]': ['30'],
+        })
+        self.assertEqual(resp.status_code, 302)
+
+        from boxes.services import EmptyBoxService
+        self.assertEqual(
+            EmptyBoxService.consumed_in_packing(self.farm_box_blue.pk), 30
+        )
+        available = EmptyBoxService.available_empty(self.farm_box_blue.pk)
+        self.assertEqual(available[self.farm_box_blue.pk], 70)
+        self.assertEqual(session.farm_empty_consumptions.count(), 1)
+
+    # ==================== تعديل وحذف عملية التوضيب ====================
+
+    def test_edit_session_updates_basics_and_returns_removed_pallets(self):
+        """
+        زر «تعديل عملية التوضيب»: يحدّث البيانات الأساسية، ويُرجع الطبالي المُزالة
+        من الجلسة إلى البراد، ويعيد احتساب وزن الداخل.
+        """
+        session = PackingService.start_packing_session(
+            trader=self.trader1,
+            crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet1, self.pallet2],
+            user=self.accountant,
+        )
+        self.pallet1.refresh_from_db()
+        self.assertEqual(self.pallet1.status, Pallet.Status.OUT_FOR_PACKING)
+
+        client = Client()
+        client.force_login(self.accountant)
+        resp = client.post(reverse('packing_edit', args=[session.pk]), {
+            'trader': self.trader2.pk,
+            'crop': self.crop.pk,
+            'packing_method': PackingSession.Method.MANUAL,
+            'workshop_name': 'ورشة معدّلة',
+            'source_pallets': [self.pallet1.pk],
+            'notes': 'تعديل تجريبي',
+        })
+        self.assertEqual(resp.status_code, 302)
+
+        session.refresh_from_db()
+        self.assertEqual(session.trader, self.trader2)
+        self.assertEqual(session.packing_method, PackingSession.Method.MANUAL)
+        self.assertEqual(session.workshop_name, 'ورشة معدّلة')
+        self.assertEqual(session.source_pallets.count(), 1)
+        # الطبلية التي أُزيلت من الجلسة عادت إلى البراد
+        self.pallet2.refresh_from_db()
+        self.assertEqual(self.pallet2.status, Pallet.Status.IN_COOLING)
+        # الطبلية الباقية ما زالت خارج البراد
+        self.pallet1.refresh_from_db()
+        self.assertEqual(self.pallet1.status, Pallet.Status.OUT_FOR_PACKING)
+        # وزن الداخل أُعيد احتسابه على الطبلية الباقية فقط
+        self.assertEqual(session.input_weight_kg, self.pallet1.estimated_net_weight)
+
+    def test_delete_session_returns_pallets_and_releases_farm_empty(self):
+        """
+        حذف عملية توضيب: يُرجع كل الطبالي المصدر إلى البراد، ويحذف الطبالي الموضّبة
+        الناتجة، ويحرّر رصيد صناديق الفارغ المستهلك.
+        """
+        from boxes.models import FarmBoxRecord
+        from boxes.services import EmptyBoxService
+
+        FarmBoxRecord.objects.create(
+            trader=self.trader1, truck_receipt=self.truck,
+            incoming_count=100, empty_count=100, recorded_by=self.accountant,
+        )
+
+        session = PackingService.start_packing_session(
+            trader=self.trader1,
+            crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet1, self.pallet2],
+            user=self.accountant,
+        )
+        PackingService.record_outputs_and_finalize(session, [{
+            'size_name': 'XL',
+            'box_type': self.box_blue,
+            'box_count': 10,
+            'net_weight_kg': Decimal('50.000'),
+            'pallet_count': 1,
+            'farm_empty_items': [{'farm_box_type': self.farm_box_blue, 'quantity': 40}],
+        }], user=self.accountant)
+
+        session_id = session.pk
+        self.pallet1.refresh_from_db()
+        self.assertEqual(self.pallet1.status, Pallet.Status.PACKED)
+        self.assertEqual(EmptyBoxService.consumed_in_packing(self.farm_box_blue.pk), 40)
+
+        session.delete()
+
+        self.assertFalse(PackingSession.objects.filter(pk=session_id).exists())
+        # كل الطبالي المصدر (المستهلكة والمرتجعة) عادت إلى البراد
+        self.pallet1.refresh_from_db()
+        self.pallet2.refresh_from_db()
+        self.assertEqual(self.pallet1.status, Pallet.Status.IN_COOLING)
+        self.assertEqual(self.pallet2.status, Pallet.Status.IN_COOLING)
+        # الفارغ المستهلك حُرِّر
+        self.assertEqual(EmptyBoxService.consumed_in_packing(self.farm_box_blue.pk), 0)
+
+    def test_edit_requires_login_and_rejects_completed_session(self):
+        """التعديل يتطلب تسجيل الدخول، ويُرفض على جلسة مكتملة."""
+        session = PackingService.start_packing_session(
+            trader=self.trader1, crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet1], user=self.accountant,
+        )
+        # بلا تسجيل دخول → تحويل لصفحة الدخول
+        anon = Client().get(reverse('packing_edit', args=[session.pk]))
+        self.assertEqual(anon.status_code, 302)
+        self.assertIn('/login/', anon.url)
+
+        # جلسة مكتملة → رفض التعديل
+        PackingService.record_outputs_and_finalize(session, [{
+            'size_name': 'XL', 'box_type': self.box_blue, 'box_count': 10,
+            'net_weight_kg': Decimal('50.000'), 'pallet_count': 1,
+        }], user=self.accountant)
+        client = Client()
+        client.force_login(self.accountant)
+        resp = client.get(reverse('packing_edit', args=[session.pk]))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(reverse('packing_detail', args=[session.pk]), resp.url)
+
 
     def _make_packed_pallet(self):
         session = PackingService.start_packing_session(

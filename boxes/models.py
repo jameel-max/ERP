@@ -395,3 +395,61 @@ class EmptyBoxDelivery(models.Model):
     def recalc_total(self):
         self.total_amount = self.expected_total
         return self.total_amount
+
+
+class FarmEmptyBoxConsumption(models.Model):
+    """
+    استهلاك الصناديق الفارغة (الواردة من المزرعة) داخل التوضيب:
+
+    عندما تُفرَّغ البضاعة الخام من صناديق المزرعة، ينتج فارغ (`FarmBoxRecord.empty_count`).
+    عند التوضيب يعيد المشغّل استخدام هذا الفارغ، فيُسجَّل هنا العدد المستهلك لكل نوع.
+
+    **مهم:** هذا السجل يُنقص الرصيد المتاح للتسليم (`EmptyBoxDelivery`) حتى لا يُخصم
+    نفس الفارغ مرتين (مرة في التوضيب ومرة عند تسليم الفارغ للمزرعة/بيعه).
+
+    المتاح الفعلي = Σ `FarmBoxRecord.empty_count` − Σ المستهلك في التوضيب − Σ المسلَّم.
+    """
+    farm_box_type = models.ForeignKey(
+        FarmBoxType,
+        on_delete=models.PROTECT,
+        related_name='packing_consumptions',
+        verbose_name='نوع الصندوق الفارغ (من المزرعة)',
+    )
+    quantity = models.PositiveIntegerField(verbose_name='عدد الصناديق الفارغة المستهلكة')
+    trader = models.ForeignKey(
+        'operations.Trader',
+        on_delete=models.PROTECT,
+        related_name='farm_empty_consumptions',
+        verbose_name='التاجر',
+    )
+    packing_session = models.ForeignKey(
+        'packing.PackingSession',
+        on_delete=models.CASCADE,
+        null=True, blank=True,
+        related_name='farm_empty_consumptions',
+        verbose_name='جلسة التوضيب',
+    )
+    packed_pallet = models.ForeignKey(
+        'packing.PackedPallet',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='farm_empty_consumptions',
+        verbose_name='الطبلية الموضبة',
+    )
+    notes = models.CharField(max_length=255, blank=True, verbose_name='ملاحظات')
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='farm_empty_consumptions',
+        verbose_name='المستخدم الذي سجّل الاستهلاك',
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='تاريخ التسجيل')
+
+    class Meta:
+        verbose_name = 'استهلاك فارغ مزرعة في التوضيب'
+        verbose_name_plural = 'استهلاك الفارغ في التوضيب'
+        ordering = ['-created_at', '-id']
+
+    def __str__(self):
+        return f"{self.farm_box_type.name}: {self.quantity} صندوق — {self.trader.name}"

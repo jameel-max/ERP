@@ -157,6 +157,21 @@ class PackingSession(models.Model):
         verbose_name_plural = 'عمليات التوضيب'
         ordering = ['-started_at']
 
+    def delete(self, *args, **kwargs):
+        """
+        حذف عملية التوضيب يعكس أثرها أولاً:
+        إرجاع كل الطبالي المصدر إلى البراد، حذف الطبالي الموضّبة الناتجة،
+        وتحرير رصيد صناديق الفارغ المستهلك — ثم الحذف.
+        """
+        from django.db import transaction
+        from .services import PackingService
+        with transaction.atomic():
+            PackingService.reverse_packing_session(
+                self, user=getattr(self, '_deleted_by', None),
+                reason=f'حذف جلسة التوضيب {self.session_code}',
+            )
+            return super().delete(*args, **kwargs)
+
     def __str__(self):
         return f"{self.session_code} - {self.trader.name} ({self.crop.name})"
 

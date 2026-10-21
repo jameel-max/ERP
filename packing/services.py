@@ -10,13 +10,152 @@ from .models import (
     PackedPalletCoolingLog, DeliveryNote,
     PackingOutputPackagingItem, PackingSessionPackagingCharge,
 )
-from boxes.services import BoxService
+from boxes.services import BoxService, EmptyBoxService
+from boxes.models import FarmBoxType, FarmEmptyBoxConsumption
 
 
 class PackingService:
     """
     خدمة التوضيب وخطوط الإنتاج والرندمان والهالك
     """
+    @classmethod
+    @transaction.atomic
+    def reverse_packing_session(cls, session, user=None, reason=''):
+        """
+        عكس أثر عملية توضيب بالكامل قبل حذفها (يُستدعى من PackingSession.delete):
+
+        - إرجاع **كل** الطبالي المصدر (المستهلكة والمرتجعة) إلى البراد في نفس السيخ.
+        - حذف الطبالي الموضّبة الناتجة عن الجلسة (ومعها سجلات تبريدها).
+        - تحرير رصيد صناديق الفارغ (من المزرعة) المستهلك في هذه الجلسة.
+        - تسجيل حركات إرجاع وسجل تدقيق واضح.
+
+        ملاحظة: لا نلمس أي قيود فواتير/مالية — إن كانت الجلسة مرتبطة بفاتورة محميّة
+        فسيُرفض الحذف بـ PROTECT قبل الوصول إلى هنا.
+        """
+        code = session.session_code
+        source_ids = list(session.source_pallets.values_list('id', flat=True))
+
+        # 1. إرجاع الطبالي المصدر إلى البراد (نفس البراد ونفس السيخ)
+        if source_ids:
+            now = timezone.now()
+            for p in Pallet.objects.select_for_update().filter(id__in=source_ids):
+                p.status = Pallet.Status.IN_COOLING
+                p.exited_cooling_at = None
+                p.save(update_fields=['status', 'exited_cooling_at'])
+                PalletMovementLog.objects.create(
+                    pallet=p,
+                    from_cold_store=None,
+                    from_shelf=None,
+                    to_cold_store=p.cold_store,
+                    to_shelf=p.shelf,
+                    movement_type='RETURN_TO_COOLING',
+                    moved_by=user,
+                    notes=f"إرجاع طبلية إلى البراد بعد إلغاء/حذف جلسة التوضيب {code}",
+                )
+
+        # 2. حذف الطبالي الموضّبة الناتجة (CASCADE يحذف سجلات التبريد المرتبطة)
+        packed_count = session.packed_pallets.count()
+        session.packed_pallets.all().delete()
+
+        # 3. تحرير الفارغ المستهلك في هذه الجلسة
+        released_empty = 0
+        for fc in list(session.farm_empty_consumptions.all()):
+            released_empty += fc.quantity
+            fc.delete()
+
+        AuditLog.log(
+            user=user,
+            action='REVERSE_PACKING_SESSION',
+            instance=session,
+            reason=reason or f'عكس أثر جلسة التوضيب {code} قبل حذفها',
+            details={
+                'session_code': code,
+                'source_pallets_returned': len(source_ids),
+                'packed_pallets_deleted': packed_count,
+                'farm_empty_released': released_empty,
+            },
+        )
+        return {
+            'source_pallets_returned': len(source_ids),
+            'packed_pallets_deleted': packed_count,
+            'farm_empty_released': released_empty,
+        }
+
+    @classmethod
+    @transaction.atomic
+    def update_packing_session(cls, session, trader, crop, packing_method,
+                               source_pallets, workshop_name="", notes=None, user=None):
+        """
+        تعديل البيانات الأساسية لعملية توضيب (قبل الإنهاء فقط):
+        التاجر، البضاعة، طريقة التوضيب، الورشة، والطبالي المصدر.
+
+        عند تغيير الطبالي المصدر: تُعاد الطبالي القديمة إلى البراد، وتُخرج الجديدة
+        منه (مع تسجيل الحركتين)، ويُعاد احتساب وزن الداخل.
+        """
+        if session.status != PackingSession.Status.DRAFT:
+            raise ValidationError('لا يمكن تعديل جلسة توضيب بدأت أو اكتملت؛ التعديل متاح للمسودة فقط.')
+        if not source_pallets:
+            raise ValidationError('يجب اختيار طبلية واحدة على الأقل من البراد.')
+
+        new_ids = {p.id for p in source_pallets}
+        old_ids = set(session.source_pallets.values_list('id', flat=True))
+
+        # إرجاع الطبالي التي أُزيلت من الجلسة إلى البراد
+        removed_ids = old_ids - new_ids
+        if removed_ids:
+            now = timezone.now()
+            for p in Pallet.objects.select_for_update().filter(id__in=removed_ids):
+                p.status = Pallet.Status.IN_COOLING
+                p.exited_cooling_at = None
+                p.save(update_fields=['status', 'exited_cooling_at'])
+                PalletMovementLog.objects.create(
+                    pallet=p, from_cold_store=None, from_shelf=None,
+                    to_cold_store=p.cold_store, to_shelf=p.shelf,
+                    movement_type='RETURN_TO_COOLING', moved_by=user,
+                    notes=f"إرجاع طبلية إلى البراد بعد تعديل جلسة التوضيب {session.session_code}",
+                )
+
+        # إخراج الطبالي المضافة حديثاً من البراد
+        added = [p for p in source_pallets if p.id not in old_ids]
+        if added:
+            now = timezone.now()
+            for p in Pallet.objects.select_for_update().filter(id__in=[p.id for p in added]):
+                p.status = Pallet.Status.OUT_FOR_PACKING
+                p.exited_cooling_at = now
+                p.save(update_fields=['status', 'exited_cooling_at'])
+                PalletMovementLog.objects.create(
+                    pallet=p, from_cold_store=p.cold_store, from_shelf=p.shelf,
+                    to_cold_store=None, to_shelf=None,
+                    movement_type='TO_PACKING', moved_by=user,
+                    notes=f"إخراج من البراد للتوضيب في الجلسة {session.session_code}",
+                )
+
+        session.trader = trader
+        session.crop = crop
+        session.packing_method = packing_method
+        session.workshop_name = workshop_name or ''
+        if notes is not None:
+            session.notes = notes
+        session.source_pallets.set(source_pallets)
+        session.input_weight_kg = sum(
+            (p.estimated_net_weight for p in source_pallets), Decimal('0.000')
+        ).quantize(Decimal('0.001'))
+        session.save()
+
+        AuditLog.log(
+            user=user,
+            action='UPDATE_PACKING_SESSION',
+            instance=session,
+            reason=f'تعديل بيانات جلسة التوضيب {session.session_code}',
+            details={
+                'session_code': session.session_code,
+                'source_pallets': [p.pallet_code for p in source_pallets],
+                'removed_pallets': len(removed_ids),
+                'added_pallets': len(added),
+            },
+        )
+        return session
+
     @classmethod
     @transaction.atomic
     def start_packing_session(cls, trader, crop, packing_method, source_pallets, workshop_name="", user=None):
@@ -93,7 +232,7 @@ class PackingService:
         settings_obj = SystemSetting.get_settings()
 
         # 1. تسجيل النواتج
-        primary_pallet = session.source_pallets.first()
+        primary_pallet = session.source_pallets.order_by('pallet_code').first()
         pallet_counter = 1
         packaging_charge_total = Decimal('0.000')
         packaging_items_count = 0
@@ -133,6 +272,25 @@ class PackingService:
                 )
                 packaging_charge_total += (qty * unit_price).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
                 packaging_items_count += 1
+
+            # صناديق الفارغ (من المزرعة) المستهلكة في هذا الناتج:
+            # لكل سطر ناتج يمكن اختيار نوع صندوق مزرعة وعدد فارغ استُخدم،
+            # فيُخصم من رصيد الفارغ المتاح (لا يُخصم مرتين لاحقاً عند تسليم الفارغ).
+            for fe in (out.get('farm_empty_items') or []):
+                fb_type = fe['farm_box_type']
+                if not isinstance(fb_type, FarmBoxType):
+                    fb_type = FarmBoxType.objects.get(id=fb_type)
+                fe_qty = int(fe.get('quantity') or 0)
+                if fe_qty <= 0:
+                    continue
+                EmptyBoxService.record_packing_consumption(
+                    farm_box_type=fb_type,
+                    quantity=fe_qty,
+                    trader=session.trader,
+                    packing_session=session,
+                    notes=f'استهلاك فارغ مزرعة في توضيب {session.session_code} ({out["size_name"]})',
+                    user=user,
+                )
 
             # توليد الطبالي الموضبة: الطبلية الأصلية + المقاس
             # كل سطر إدخال = طبلية واحدة بوزنها الخاص ورمز QR خاص بها
@@ -211,12 +369,65 @@ class PackingService:
                 },
             )
 
-        # 3. حساب المقاييس وفحص حد السماح
+        # 3. فصل الطبالي **المستهلكة فعلاً** عن **غير المستهلكة**:
+        #    كل سطر ناتج = طبلية موضبة واحدة، فعدد الطبالي المستهلكة = عدد الطبالي الموضبة الناتجة.
+        #    - المستهلكة: تُوسم «موضبة».
+        #    - غير المستهلكة: تُعاد تلقائياً إلى البراد في نفس السيخ (لا تختفي من الجرد).
+        #    - الوزن الصافي الداخل (input_weight_kg) يُعاد احتسابه من الطبالي المستهلكة فقط،
+        #      فلا يظهر فرق وزن وهمي، والرندمان يكون دقيقاً.
+        source_pallets = list(session.source_pallets.order_by('pallet_code'))
+        used_count = session.packed_pallets.count()
+        used_pallets = source_pallets[:used_count]
+        returned_pallets = source_pallets[used_count:]
+
+        # إعادة احتساب وزن الداخل من الطبالي المستهلكة فقط
+        session.input_weight_kg = sum(
+            (p.estimated_net_weight for p in used_pallets), Decimal('0.000')
+        ).quantize(Decimal('0.001'))
+
+        # وسم الطبالي المستهلكة كموضبة
+        used_ids = [p.id for p in used_pallets]
+        if used_ids:
+            Pallet.objects.filter(id__in=used_ids).update(status=Pallet.Status.PACKED)
+
+        # إرجاع الطبالي غير المستهلكة إلى البراد (نفس البراد ونفس السيخ)
+        if returned_pallets:
+            now = timezone.now()
+            for p in returned_pallets:
+                p.status = Pallet.Status.IN_COOLING
+                p.exited_cooling_at = None
+                p.save(update_fields=['status', 'exited_cooling_at'])
+
+                PalletMovementLog.objects.create(
+                    pallet=p,
+                    from_cold_store=None,
+                    from_shelf=None,
+                    to_cold_store=p.cold_store,
+                    to_shelf=p.shelf,
+                    movement_type='RETURN_TO_COOLING',
+                    moved_by=user,
+                    notes=f"إرجاع طبلية غير موضّبة إلى البراد من جلسة {session.session_code}",
+                )
+
+            AuditLog.log(
+                user=user,
+                action='RETURN_UNUSED_PALLETS',
+                instance=session,
+                reason=(
+                    f'إرجاع {len(returned_pallets)} طبلية غير موضّبة إلى البراد '
+                    f'من الجلسة {session.session_code}'
+                ),
+                details={
+                    'session_code': session.session_code,
+                    'used_pallets': len(used_pallets),
+                    'returned_pallets': len(returned_pallets),
+                    'returned_codes': [p.pallet_code for p in returned_pallets],
+                },
+            )
+
+        # حساب المقاييس وفحص حد السماح (بعد تصحيح وزن الداخل)
         session.calculate_metrics(tolerance_pct=settings_obj.weight_tolerance_pct)
         session.completed_at = timezone.now()
-
-        # تحديث حالة الطبالي الأصلية
-        session.source_pallets.update(status=Pallet.Status.PACKED)
 
         if session.requires_manager_approval:
             session.status = PackingSession.Status.PENDING_APPROVAL

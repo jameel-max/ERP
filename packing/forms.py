@@ -23,6 +23,14 @@ class StartPackingSessionForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # عند تعديل جلسة قائمة: تُضاف طبالي الجلسة الحالية (خارج البراد) إلى الخيارات،
+        # حتى لا تختفي من القائمة ويتعذّر حفظ الجلسة دون تغيير طباليها.
+        instance = kwargs.get('instance')
+        if instance is not None and instance.pk:
+            current = instance.source_pallets.all()
+            self.fields['source_pallets'].queryset = (
+                Pallet.objects.filter(status=Pallet.Status.IN_COOLING) | current
+            ).distinct()
         # تخصيص عرض الطبالي في القائمة
         self.fields['source_pallets'].label_from_instance = lambda obj: f"{obj.pallet_code} - {obj.trader.name} ({obj.crop.name} - {obj.box_count} صندوق - {obj.cold_store.name})"
 

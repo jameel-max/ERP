@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}تعديل عملية التوضيب {{ session.session_code }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="row justify-content-center">
+        <div class="col-md-9">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-royal py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0 fw-bold">
+                        <i class="bi bi-pencil-square me-2"></i> تعديل عملية التوضيب {{ session.session_code }}
+                    </h5>
+                    <a href="{% url 'packing_detail' session.pk %}" class="btn btn-sm btn-outline-light">
+                        <i class="bi bi-arrow-right me-1"></i> رجوع للتفاصيل
+                    </a>
+                </div>
+                <div class="card-body p-4 bg-white">
+                    <div class="alert alert-warning border-0 small mb-3">
+                        <i class="bi bi-info-circle me-1"></i>
+                        التعديل متاح للمسودة فقط. عند تغيير الطبالي المصدر، تُعاد الطبالي المُزالة إلى البراد
+                        في نفس السيخ، وتُخرج الطبالي المُضافة للتوضيب، ويُعاد احتساب وزن الداخل تلقائياً.
+                    </div>
+                    <form method="post">
+                        {% csrf_token %}
+                        {% if form.errors %}
+                        <div class="alert alert-danger border-0 small">
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            يرجى تصحيح الحقول المطلوبة أدناه.
+                            {{ form.errors }}
+                        </div>
+                        {% endif %}
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">التاجر *</label>
+                                {{ form.trader }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">نوع البضاعة *</label>
+                                {{ form.crop }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">طريقة التوضيب المعتمدة *</label>
+                                {{ form.packing_method }}
+                                <small class="text-muted">مكينة أو يدوي (عاملات)</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">اسم الورشة أو خط التشغيل</label>
+                                {{ form.workshop_name }}
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold text-success">
+                                    <i class="bi bi-snow2 me-1"></i> طبالي الاستلام (من البراد) *
+                                </label>
+                                {{ form.source_pallets }}
+                                <small class="text-muted d-block">
+                                    اضغط زر Ctrl لاختيار أكثر من طبلية معاً. الطبالي الحالية للجلسة معروضة مع المتاح في البراد.
+                                </small>
+                                <span class="badge bg-dark mt-2">العدد الحالي في الجلسة: {{ session.source_pallets.count }}</span>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">ملاحظات وتعليمات التوضيب</label>
+                                {{ form.notes }}
+                            </div>
+                        </div>
+
+                        <hr class="my-4">
+                        <div class="d-flex justify-content-between">
+                            <a href="{% url 'packing_detail' session.pk %}" class="btn btn-outline-secondary">إلغاء</a>
+                            <button type="submit" class="btn btn-royal px-4">
+                                <i class="bi bi-save me-1"></i> حفظ تعديلات عملية التوضيب
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

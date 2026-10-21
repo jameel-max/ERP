@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from .models import (
     TraderBoxBalance, TraderBoxTransaction, FarmBoxType, FarmBoxRecord,
-    EmptyBoxRecipient, EmptyBoxDelivery,
+    EmptyBoxRecipient, EmptyBoxDelivery, FarmEmptyBoxConsumption,
 )
 from operations.models import BoxType, Trader
 from core.models import Notification, AuditLog
@@ -177,7 +177,7 @@ class EmptyBoxService:
     def available_empty(cls, farm_box_type_id=None):
         """
         الرصيد المتاح للتسليم لكل نوع صندوق:
-        إجمالي الفارغ الناتج عن التفريغ − إجمالي ما سُلِّم فعلاً (إرجاعاً أو بيعاً).
+        إجمالي الفارغ الناتج عن التفريغ − إجمالي ما استُهلك في التوضيب − إجمالي ما سُلِّم فعلاً (إرجاعاً أو بيعاً).
 
         يعيد قاموساً: {معرف نوع الصندوق الوارد: الرصيد المتاح}
         """
@@ -190,10 +190,26 @@ class EmptyBoxService:
             for row in EmptyBoxDelivery.objects.filter(status=cls._DELIVERED)
             .values('box_type_id').annotate(total=Sum('quantity'))
         }
-        keys = set(produced) | set(delivered)
-        result = {k: (produced.get(k, 0) - delivered.get(k, 0)) for k in keys}
+        consumed = {
+            row['farm_box_type_id']: row['total'] or 0
+            for row in FarmEmptyBoxConsumption.objects.values('farm_box_type_id').annotate(total=Sum('quantity'))
+        }
+        keys = set(produced) | set(delivered) | set(consumed)
+        result = {
+            k: (produced.get(k, 0) - delivered.get(k, 0) - consumed.get(k, 0))
+            for k in keys
+        }
         if farm_box_type_id is not None:
             return {farm_box_type_id: result.get(farm_box_type_id, 0)}
+        return result
+
+    @classmethod
+    def consumed_in_packing(cls, farm_box_type_id=None):
+        """إجمالي ما استُهلك في التوضيب لكل نوع صندوق مزرعة."""
+        qs = FarmEmptyBoxConsumption.objects.values('farm_box_type_id').annotate(total=Sum('quantity'))
+        result = {row['farm_box_type_id']: row['total'] or 0 for row in qs}
+        if farm_box_type_id is not None:
+            return result.get(farm_box_type_id, 0)
         return result
 
     @classmethod
@@ -213,13 +229,66 @@ class EmptyBoxService:
         if exclude_delivery is not None and exclude_delivery.pk:
             delivered_qs = delivered_qs.exclude(pk=exclude_delivery.pk)
         delivered = delivered_qs.aggregate(total=Sum('quantity'))['total'] or 0
-        available = produced - delivered
+        consumed = cls.consumed_in_packing(box_type.pk)
+        available = produced - delivered - consumed
         if quantity > available:
             raise ValidationError(
                 f'عدد الصناديق الفارغة المتاح من نوع «{box_type.name}» هو {available} فقط، '
                 f'والكمية المطلوبة {quantity}. سجّل صناديق المزرعة الواردة أولاً أو عدّل الكمية.'
             )
         return available
+
+    @classmethod
+    @transaction.atomic
+    def record_packing_consumption(cls, farm_box_type, quantity, trader, packing_session=None,
+                                   packed_pallet=None, notes='', user=None):
+        """
+        تسجيل استهلاك صناديق فارغة (من المزرعة) داخل التوضيب، بفحص ذرّي للتوفّر:
+
+        - يقفل صفّ نوع الصندوق (`select_for_update`) لمنع استهلاكين متزامنين يتجاوزان المتاح.
+        - يمنع استهلاك أكثر من الرصيد المتاح فعلاً برسالة عربية واضحة (لا خطأ 500).
+        - **يتصرف بصمت** إذا كان النوع لا يملك أي رصيد مُسجَّل بعد (produced == 0)،
+          حتى لا يُحجب التوضيب على أنواع لم تُسجَّل سجلات مزرعة لها إطلاقاً.
+        """
+        quantity = int(quantity or 0)
+        if quantity <= 0:
+            return None
+
+        FarmBoxType.objects.select_for_update().get(pk=farm_box_type.pk)
+
+        produced = FarmBoxRecord.objects.filter(
+            truck_receipt__box_type=farm_box_type
+        ).aggregate(total=Sum('empty_count'))['total'] or 0
+        if produced == 0:
+            # لا يوجد رصيد مُسجَّل لهذا النوع — لا نحجب العملية، ولا نسجّل استهلاكاً.
+            return None
+
+        available = cls.validate_available(farm_box_type, quantity)
+        consumption = FarmEmptyBoxConsumption.objects.create(
+            farm_box_type=farm_box_type,
+            quantity=quantity,
+            trader=trader,
+            packing_session=packing_session,
+            packed_pallet=packed_pallet,
+            notes=notes or '',
+            created_by=user,
+        )
+        AuditLog.log(
+            user=user,
+            action='FARM_EMPTY_BOX_CONSUMED',
+            instance=consumption,
+            reason=(
+                f'استهلاك {quantity} صندوق فارغ من نوع «{farm_box_type.name}» في التوضيب '
+                f'للتاجر {trader.name}'
+            ),
+            details={
+                'farm_box_type': farm_box_type.name,
+                'quantity': quantity,
+                'available_before': available,
+                'packing_session': getattr(packing_session, 'session_code', None),
+            },
+        )
+        return consumption
 
     @classmethod
     @transaction.atomic

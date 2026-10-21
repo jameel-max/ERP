@@ -6,6 +6,7 @@ urlpatterns = [
     path('packing/start/', views.packing_start, name='packing_start'),
     path('packing/sessions/<int:pk>/', views.packing_detail, name='packing_detail'),
     path('packing/sessions/<int:pk>/finalize/', views.packing_finalize, name='packing_finalize'),
+    path('packing/sessions/<int:pk>/edit/', views.packing_edit, name='packing_edit'),
     path('packing/sessions/<int:pk>/approve/', views.packing_manager_approve, name='packing_manager_approve'),
 
     # الطبالي الموضبة

@@ -34,6 +34,11 @@
                     <a href="{% url 'packing_list' %}" class="btn btn-outline-secondary">
                         <i class="bi bi-arrow-right me-1"></i> قائمة العمليات
                     </a>
+                    {% if session.status == 'DRAFT' %}
+                    <a href="{% url 'packing_edit' session.pk %}" class="btn btn-outline-primary">
+                        <i class="bi bi-pencil-square me-1"></i> تعديل عملية التوضيب
+                    </a>
+                    {% endif %}
                     {% include "core/_delete_button.html" with app_label="packing" model_name="packingsession" object_id=session.pk btn_class="btn-outline-danger" title="حذف جلسة التوضيب بشكل منفرد" show_text=True %}
                 </div>
             </div>
@@ -130,6 +135,8 @@
                     </span>
                     <span class="small text-muted">
                         لا يمكن أن يتجاوز عدد أسطر النواتج (كل سطر = طبلية موضبة) عدد طبالي الاستلام المسحوبة من البراد في هذه الجلسة.
+                        <strong>أي طبلية مسحوبة لا تُوضّب تُعاد تلقائياً إلى البراد في نفس السيخ عند الحفظ،</strong>
+                        ويُحتسب الرندمان من الطبالي الموضّبة فعلاً فقط.
                     </span>
                 </div>
                 <div id="outputsContainer">
@@ -178,6 +185,29 @@
                                 </small>
                             </div>
                         </div>
+
+                        <!-- صناديق الفارغ (من المزرعة) المستهلكة في هذا الناتج -->
+                        <div class="col-12">
+                            <div class="border rounded bg-light p-2 mt-1">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="small fw-bold text-secondary">
+                                        <i class="bi bi-recycle me-1"></i> صناديق الفارغ (من المزرعة) المستهلكة في هذا المقاس (اختياري)
+                                    </span>
+                                    <button type="button" class="btn btn-outline-primary btn-sm add-fe-row"
+                                            {% if not farm_box_types %}disabled title="لا يوجد فارغ متاح من صناديق المزرعة حالياً"{% endif %}>
+                                        <i class="bi bi-plus-lg me-1"></i> إضافة فارغ
+                                    </button>
+                                </div>
+                                <div class="fe-items-container" data-fe-container></div>
+                                <small class="text-muted d-block mt-1">
+                                    {% if farm_box_types %}
+                                    يُخصم العدد المُدخل من رصيد الفارغ المتاح لذلك النوع، فلا يُسلَّم نفس الفارغ مرتين.
+                                    {% else %}
+                                    لا يوجد رصيد فارغ متاح حالياً من صناديق المزرعة؛ سجّل الصناديق الواردة أولاً من صفحة «صناديق المزرعة».
+                                    {% endif %}
+                                </small>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -210,6 +240,31 @@
                         </div>
                         <div class="col-md-1 text-center">
                             <button type="button" class="btn btn-outline-danger btn-sm remove-pkg-row" title="حذف صنف التغليف">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- قالب سطر فارغ مزرعة واحد يُستنسخ بواسطة JS داخل كل سطر ناتج -->
+                <template id="farmEmptyTemplate">
+                    <div class="row g-2 align-items-center mb-1 fe-item-row" data-fe-row>
+                        <input type="hidden" name="fe_output_idx[]" class="fe-output-idx">
+                        <div class="col-md-6">
+                            <select name="fe_type[]" class="form-select form-select-sm">
+                                <option value="">— اختر نوع الصندوق الفارغ —</option>
+                                {% for fb in farm_box_types %}
+                                <option value="{{ fb.obj.id }}" data-available="{{ fb.available }}">
+                                    {{ fb.obj.name }} (متاح: {{ fb.available }})
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <input type="number" name="fe_qty[]" class="form-control form-control-sm fe-qty" value="1" min="1" placeholder="عدد الفارغ">
+                        </div>
+                        <div class="col-md-2 text-center">
+                            <button type="button" class="btn btn-outline-danger btn-sm remove-fe-row" title="حذف سطر الفارغ">
                                 <i class="bi bi-x-lg"></i>
                             </button>
                         </div>
@@ -374,6 +429,46 @@
     </div>
     {% endif %}
 
+    <!-- صناديق الفارغ (من المزرعة) المستهلكة في هذا التوضيب -->
+    {% if session.farm_empty_consumptions.exists %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+            <h5 class="fw-bold mb-0 text-dark">
+                <i class="bi bi-recycle text-primary me-2"></i> صناديق الفارغ (من المزرعة) المستهلكة في هذا التوضيب
+            </h5>
+            <span class="badge bg-primary fs-6">
+                إجمالي: {{ session.farm_empty_consumptions.count }} سطر
+            </span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>نوع الصندوق الفارغ</th>
+                        <th>العدد المستهلك</th>
+                        <th>التاجر</th>
+                        <th>المستخدم</th>
+                        <th>تاريخ التسجيل</th>
+                        <th>ملاحظات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for fc in session.farm_empty_consumptions.all %}
+                    <tr>
+                        <td class="fw-bold">{{ fc.farm_box_type.name }}</td>
+                        <td><span class="badge bg-primary">{{ fc.quantity }}</span></td>
+                        <td>{{ fc.trader.name }}</td>
+                        <td>{{ fc.created_by.username|default:"—" }}</td>
+                        <td class="small text-muted">{{ fc.created_at|date:"Y-m-d H:i" }}</td>
+                        <td class="small text-muted">{{ fc.notes|default:"—" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- الطبالي الأصلية المسحوبة من البراد -->
     <div class="card shadow-sm mb-4">
         <div class="card-header bg-white border-bottom py-3">
@@ -389,6 +484,7 @@
                         <th>الصناديق الأصلية</th>
                         <th>الوزن الصافي التقديري</th>
                         <th>أيام البقاء بالبراد</th>
+                        {% if session.status != 'DRAFT' %}<th>المصير</th>{% endif %}
                     </tr>
                 </thead>
                 <tbody>
@@ -400,6 +496,17 @@
                         <td>{{ p.box_count }}</td>
                         <td class="fw-bold">{{ p.estimated_net_weight }} كغ</td>
                         <td>{{ p.days_in_cooling }} يوم</td>
+                        {% if session.status != 'DRAFT' %}
+                        <td>
+                            {% if p.status == 'PACKED' %}
+                            <span class="badge bg-success">وُضّبت</span>
+                            {% elif p.status == 'IN_COOLING' %}
+                            <span class="badge bg-info text-dark">أُعيدت إلى البراد</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ p.get_status_display }}</span>
+                            {% endif %}
+                        </td>
+                        {% endif %}
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -421,6 +528,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const warning = document.getElementById('rowsWarning');
     const pkgTemplate = document.getElementById('pkgItemTemplate');
     const pkgGrandTotal = document.getElementById('pkgGrandTotal');
+    const feTemplate = document.getElementById('farmEmptyTemplate');
     // كل سطر إدخال = طبلية موضبة واحدة، فلا يجوز تجاوز عدد طبالي الاستلام المتاحة
     const maxRows = {{ session.source_pallets.count|unlocalize }};
 
@@ -482,6 +590,27 @@ document.addEventListener('DOMContentLoaded', function() {
         refreshPkgTotals();
     }
 
+    // إعادة ترقيم أسطر فارغ المزرعة وضبط fe_output_idx[] حسب ترتيب سطر الناتج الحالي
+    function reindexFeRows() {
+        if (!container) return;
+        const rows = Array.from(container.querySelectorAll('.output-row'));
+        rows.forEach(function(row, idx) {
+            row.querySelectorAll('[data-fe-row]').forEach(function(feRow) {
+                const hidden = feRow.querySelector('.fe-output-idx');
+                if (hidden) hidden.value = idx;
+            });
+        });
+    }
+
+    function addFeRowTo(outputRow) {
+        if (!feTemplate) return;
+        const containerEl = outputRow.querySelector('[data-fe-container]');
+        if (!containerEl) return;
+        const clone = feTemplate.content.cloneNode(true);
+        containerEl.appendChild(clone);
+        reindexFeRows();
+    }
+
     function refreshCounter() {
         const used = usedRows();
         if (counter) {
@@ -503,6 +632,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
         reindexPkgRows();
+        reindexFeRows();
         refreshPkgTotals();
     }
 
@@ -516,6 +646,10 @@ document.addEventListener('DOMContentLoaded', function() {
             // تفريغ الحقول الأساسية وعدم نسخ أصناف التغليف المختارة، مع إبقاء صفٍّ واحد فارغ
             clone.querySelectorAll('input[name="size_name[]"], input[name="net_weight_kg[]"]').forEach(function(i) { i.value = ''; });
             clone.querySelectorAll('[data-pkg-container]').forEach(function(c) { c.innerHTML = ''; });
+            clone.querySelectorAll('[data-fe-container]').forEach(function(c) {
+                // إبقاء خانة fe_output_idx المخفية فقط وتفريغ أسطر الفارغ
+                Array.from(c.querySelectorAll('[data-fe-row]')).forEach(function(r) { r.remove(); });
+            });
             container.appendChild(clone);
             refreshCounter();
         });
@@ -533,6 +667,16 @@ document.addEventListener('DOMContentLoaded', function() {
             const addPkgBtn = event.target.closest('.add-pkg-row');
             if (addPkgBtn) {
                 addPkgRowTo(addPkgBtn.closest('.output-row'));
+                return;
+            }
+            const addFeBtn = event.target.closest('.add-fe-row');
+            if (addFeBtn) {
+                addFeRowTo(addFeBtn.closest('.output-row'));
+                return;
+            }
+            const removeFeBtn = event.target.closest('.remove-fe-row');
+            if (removeFeBtn) {
+                removeFeBtn.closest('[data-fe-row]').remove();
                 return;
             }
             const removePkgBtn = event.target.closest('.remove-pkg-row');

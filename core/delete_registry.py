@@ -26,6 +26,7 @@ DELETE_ALLOWED = {
         'farmboxrecord',
         'emptyboxrecipient',
         'emptyboxdelivery',
+        'farmemptyboxconsumption',
     },
     'invoicing': {
         'invoice',

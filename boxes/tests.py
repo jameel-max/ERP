@@ -390,3 +390,85 @@ class EmptyBoxDeliveryViewTests(TestCase):
         })
         self.assertEqual(response.status_code, 200)  # خطأ في النموذج لا 500
         self.assertContains(response, 'مكرر')
+
+
+class FarmEmptyBoxConsumptionTests(TestCase):
+    """
+    استهلاك صناديق الفارغ (من المزرعة) داخل التوضيب:
+    يُخصم من الرصيد المتاح للتسليم، بفحص توفّر ذرّي ورسالة عربية عند التجاوز.
+    """
+
+    def setUp(self):
+        from operations.models import Crop, TruckReceipt, ColdStore
+        from boxes.models import FarmBoxType, FarmBoxRecord
+
+        self.settings = SystemSetting.get_settings()
+        self.settings.save()
+        self.accountant = User.objects.create_user(
+            username='fec_accountant', password='pass', role=User.Role.ACCOUNTANT
+        )
+        self.trader = Trader.objects.create(code='FEC1', name='مزارع الفارغ')
+        self.crop = Crop.objects.create(name='خيار')
+        self.farm_box_type = FarmBoxType.objects.create(
+            name='صندوق مزرعة خشب', description='8KG'
+        )
+        self.cold_store = ColdStore.objects.create(
+            code='CS-FEC', name='براد الفارغ', capacity_pallets=10
+        )
+        truck = TruckReceipt.objects.create(
+            lot_number='2026-FEC1', trader=self.trader, crop=self.crop,
+            box_type=self.farm_box_type, box_count=200,
+            gross_weight=Decimal('4000.000'), tare_weight=Decimal('1000.000'),
+            cold_store=self.cold_store,
+        )
+        FarmBoxRecord.objects.create(
+            trader=self.trader, truck_receipt=truck,
+            incoming_count=200, empty_count=200, recorded_by=self.accountant,
+        )
+
+    def test_consumption_reduces_available_empty(self):
+        available_before = EmptyBoxService.available_empty(self.farm_box_type.pk)
+        self.assertEqual(available_before[self.farm_box_type.pk], 200)
+
+        EmptyBoxService.record_packing_consumption(
+            farm_box_type=self.farm_box_type, quantity=50,
+            trader=self.trader, user=self.accountant,
+        )
+
+        available_after = EmptyBoxService.available_empty(self.farm_box_type.pk)
+        self.assertEqual(available_after[self.farm_box_type.pk], 150)
+        self.assertEqual(
+            EmptyBoxService.consumed_in_packing(self.farm_box_type.pk), 50
+        )
+
+    def test_over_consumption_raises_arabic_validation_error(self):
+        with self.assertRaises(ValidationError) as ctx:
+            EmptyBoxService.record_packing_consumption(
+                farm_box_type=self.farm_box_type, quantity=500,
+                trader=self.trader, user=self.accountant,
+            )
+        self.assertIn('المتاح', str(ctx.exception))
+
+    def test_delivery_after_consumption_cannot_exceed_remaining(self):
+        EmptyBoxService.record_packing_consumption(
+            farm_box_type=self.farm_box_type, quantity=150,
+            trader=self.trader, user=self.accountant,
+        )
+        # المتبقي 50 فقط، فمحاولة تسليم 80 يجب أن تُرفض
+        from boxes.models import EmptyBoxRecipient, EmptyBoxDelivery
+        recipient = EmptyBoxRecipient.objects.create(
+            name='مزرعة الفارغ', kind=EmptyBoxRecipient.Kind.FARM
+        )
+        with self.assertRaises(ValidationError):
+            EmptyBoxService.create_delivery({
+                'kind': EmptyBoxDelivery.Kind.RETURN,
+                'recipient': recipient,
+                'box_type': self.farm_box_type,
+                'quantity': 80,
+                'unit_price': Decimal('0.000'),
+                'delivery_date': timezone.localdate(),
+                'payment_method': '',
+                'treasury_account': None,
+                'status': EmptyBoxDelivery.Status.DRAFT,
+            }, user=self.accountant)
+
