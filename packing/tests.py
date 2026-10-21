@@ -370,8 +370,8 @@ class Phase2ComprehensiveTests(TestCase):
 
     def test_packing_finalize_view_records_farm_empty_consumption(self):
         """
-        إدخال نواتج التوضيب مع صناديق فارغ (من المزرعة) يُخصم عددها من الرصيد المتاح،
-        ويُسجَّل الاستهلاك مرتبطاً بجلسة التوضيب.
+        إدخال نواتج التوضيب مع صناديق فارغ (من المزرعة) في قسم البرارة/التالف المستقل
+        يُخصم عددها من الرصيد المتاح، ويُسجَّل الاستهلاك مرتبطاً بجلسة التوضيب.
         """
         from boxes.models import FarmBoxRecord
 
@@ -396,7 +396,7 @@ class Phase2ComprehensiveTests(TestCase):
             'net_weight_kg[]': ['100.000'],
             'waste_type[]': ['تالف'],
             'waste_weight[]': ['0.000'],
-            'fe_output_idx[]': ['0'],
+            # قسم مستقل للبرارة والتالف: بلا fe_output_idx
             'fe_type[]': [str(self.farm_box_blue.id)],
             'fe_qty[]': ['30'],
         })
@@ -409,6 +409,10 @@ class Phase2ComprehensiveTests(TestCase):
         available = EmptyBoxService.available_empty(self.farm_box_blue.pk)
         self.assertEqual(available[self.farm_box_blue.pk], 70)
         self.assertEqual(session.farm_empty_consumptions.count(), 1)
+        # السجل مرتبط بالجلسة نفسها (قسم مستقل عن نواتج المقاسات)
+        self.assertEqual(
+            session.farm_empty_consumptions.first().packing_session_id, session.pk
+        )
 
     # ==================== تعديل وحذف عملية التوضيب ====================
 
@@ -479,8 +483,9 @@ class Phase2ComprehensiveTests(TestCase):
             'box_count': 10,
             'net_weight_kg': Decimal('50.000'),
             'pallet_count': 1,
-            'farm_empty_items': [{'farm_box_type': self.farm_box_blue, 'quantity': 40}],
-        }], user=self.accountant)
+        }], farm_empty_items=[
+            {'farm_box_type': self.farm_box_blue, 'quantity': 40},
+        ], user=self.accountant)
 
         session_id = session.pk
         self.pallet1.refresh_from_db()
@@ -909,11 +914,11 @@ class PackagingItemsChargeTests(TestCase):
         self.cold_store = ColdStore.objects.create(name='براد التغليف', code='CS-PK', capacity_pallets=20)
         self.shelf = Shelf.objects.create(cold_store=self.cold_store, shelf_number='1', capacity_pallets=10)
 
-        farm_box = FarmBoxType.objects.create(name='صندوق مزرعة للتغليف', tare_weight=Decimal('0.800'))
-        truck = ReceptionService.process_truck_reception({
+        self.farm_box = FarmBoxType.objects.create(name='صندوق مزرعة للتغليف', tare_weight=Decimal('0.800'))
+        self.truck = ReceptionService.process_truck_reception({
             'trader': self.trader.id,
             'crop': self.crop.id,
-            'box_type': farm_box.id,
+            'box_type': self.farm_box.id,
             'box_count': 100,
             'gross_weight': Decimal('2000.000'),
             'tare_weight': Decimal('1000.000'),
@@ -921,7 +926,7 @@ class PackagingItemsChargeTests(TestCase):
             'cold_store': self.cold_store.id,
             'shelf': self.shelf.id,
         }, user=self.accountant)
-        self.pallet = truck.pallets.first()
+        self.pallet = self.truck.pallets.first()
 
     def _start_session(self):
         return PackingService.start_packing_session(
@@ -1046,5 +1051,64 @@ class PackagingItemsChargeTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'pkgItemTemplate')
         self.assertContains(resp, 'أصناف التغليف المستخدمة في هذا المقاس')
+
+    def test_packing_detail_has_no_prefilled_output_row(self):
+        """
+        لا يُعرض أي سطر ناتج جاهز عند فتح صفحة الإدخال، حتى لا يظهر مقاس
+        أو عدد صناديق معبّأ مسبقاً. سطر الناتج يُبنى من قالب عند طلب المستخدم فقط.
+        """
+        session = self._start_session()
+        self.client.force_login(self.accountant)
+        resp = self.client.get(reverse('packing_detail', args=[session.pk]))
+        self.assertEqual(resp.status_code, 200)
+        # الحاوية فارغة، والسطر موجود كقالب فقط
+        self.assertContains(resp, 'id="outputsContainer"></div>')
+        self.assertContains(resp, 'id="outputRowTemplate"')
+        # لا قيم معبّأة مسبقاً في سطر الناتج
+        self.assertNotContains(resp, 'value="P1 Standard"')
+        self.assertNotContains(resp, 'value="80"')
+
+    def test_packing_detail_farm_empty_section_is_independent_of_outputs(self):
+        """
+        قسم فارغ المزرعة للبرارة والتالف قسم مستقل تماماً عن أسطر نواتج المقاسات.
+        """
+        session = self._start_session()
+        self.client.force_login(self.accountant)
+        resp = self.client.get(reverse('packing_detail', args=[session.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="farmEmptyContainer"')
+        self.assertContains(resp, 'id="addFarmEmptyRow"')
+        self.assertContains(resp, 'صناديق الفارغ (من المزرعة) المستهلكة في البرارة والتالف')
+        # لم يعد مرتبطاً بسطر الناتج
+        self.assertNotContains(resp, 'fe_output_idx[]')
+
+    def test_farm_empty_consumption_is_session_level_not_per_output(self):
+        """
+        تسجيل استهلاك فارغ المزرعة لا يحتاج ربطه بسطر ناتج؛ يُسجَّل على الجلسة مباشرة.
+        """
+        from boxes.models import FarmBoxRecord
+        from boxes.services import EmptyBoxService
+
+        FarmBoxRecord.objects.create(
+            trader=self.trader, truck_receipt=self.truck,
+            incoming_count=50, empty_count=50, recorded_by=self.accountant,
+        )
+        session = self._start_session()
+        PackingService.record_outputs_and_finalize(
+            session,
+            [{
+                'size_name': 'XL', 'box_type': self.box, 'box_count': 80,
+                'net_weight_kg': self.pallet.estimated_net_weight,
+                'pallet_count': 1,
+            }],
+            farm_empty_items=[
+                {'farm_box_type': self.farm_box, 'quantity': 12},
+            ],
+            user=self.accountant,
+        )
+        cons = session.farm_empty_consumptions.all()
+        self.assertEqual(cons.count(), 1)
+        self.assertEqual(cons.first().quantity, 12)
+        self.assertEqual(EmptyBoxService.consumed_in_packing(self.farm_box.pk), 12)
 
 

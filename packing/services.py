@@ -210,7 +210,8 @@ class PackingService:
 
     @classmethod
     @transaction.atomic
-    def record_outputs_and_finalize(cls, session, outputs_data, wastes_data=None, user=None):
+    def record_outputs_and_finalize(cls, session, outputs_data, wastes_data=None,
+                                    farm_empty_items=None, user=None):
         """
         تسجيل نواتج المقاسات والهالك وتوليد الطبالي الموضبة وحساب الرندمان
         """
@@ -273,25 +274,6 @@ class PackingService:
                 packaging_charge_total += (qty * unit_price).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
                 packaging_items_count += 1
 
-            # صناديق الفارغ (من المزرعة) المستهلكة في هذا الناتج:
-            # لكل سطر ناتج يمكن اختيار نوع صندوق مزرعة وعدد فارغ استُخدم،
-            # فيُخصم من رصيد الفارغ المتاح (لا يُخصم مرتين لاحقاً عند تسليم الفارغ).
-            for fe in (out.get('farm_empty_items') or []):
-                fb_type = fe['farm_box_type']
-                if not isinstance(fb_type, FarmBoxType):
-                    fb_type = FarmBoxType.objects.get(id=fb_type)
-                fe_qty = int(fe.get('quantity') or 0)
-                if fe_qty <= 0:
-                    continue
-                EmptyBoxService.record_packing_consumption(
-                    farm_box_type=fb_type,
-                    quantity=fe_qty,
-                    trader=session.trader,
-                    packing_session=session,
-                    notes=f'استهلاك فارغ مزرعة في توضيب {session.session_code} ({out["size_name"]})',
-                    user=user,
-                )
-
             # توليد الطبالي الموضبة: الطبلية الأصلية + المقاس
             # كل سطر إدخال = طبلية واحدة بوزنها الخاص ورمز QR خاص بها
             # مثال: 2026-0143-P03-XL
@@ -347,6 +329,25 @@ class PackingService:
                         weight_kg=Decimal(str(w['weight_kg'])),
                         notes=w.get('notes', '')
                     )
+
+        # 2-أ. صناديق الفارغ (من المزرعة) المستهلكة في البرارة والتالف:
+        # قسم مستقل تماماً عن نواتج المقاسات، يُخصم من رصيد الفارغ المتاح
+        # حتى لا يُسلَّم نفس الفارغ مرتين (مرة هنا ومرة عند تسليم الفارغ).
+        for fe in (farm_empty_items or []):
+            fb_type = fe['farm_box_type']
+            if not isinstance(fb_type, FarmBoxType):
+                fb_type = FarmBoxType.objects.get(id=fb_type)
+            fe_qty = int(fe.get('quantity') or 0)
+            if fe_qty <= 0:
+                continue
+            EmptyBoxService.record_packing_consumption(
+                farm_box_type=fb_type,
+                quantity=fe_qty,
+                trader=session.trader,
+                packing_session=session,
+                notes=f'استهلاك فارغ مزرعة في برارة/تالف الجلسة {session.session_code}',
+                user=user,
+            )
 
         # 2-ب. قيد خصم أصناف التغليف العادية على التاجر (يُرحَّل لاحقاً إلى فاتورته)
         if packaging_items_count > 0:

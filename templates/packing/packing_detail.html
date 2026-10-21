@@ -139,11 +139,17 @@
                         ويُحتسب الرندمان من الطبالي الموضّبة فعلاً فقط.
                     </span>
                 </div>
-                <div id="outputsContainer">
+                <div id="outputsContainer"></div>
+
+                <!--
+                    قالب سطر ناتج واحد. لا يُعرض أي سطر جاهز عند فتح الصفحة،
+                    بل يضيف المستخدم أسطر النواتج بنفسه عبر زر «إضافة مقاس ناتج آخر».
+                -->
+                <template id="outputRowTemplate">
                     <div class="row g-2 align-items-end mb-2 output-row" data-output-row>
                         <div class="col-md-3">
                             <label class="small fw-bold">المقاس / التصنيف *</label>
-                            <input type="text" name="size_name[]" class="form-control" placeholder="مثال: P1 Small, XL..." value="P1 Standard" required>
+                            <input type="text" name="size_name[]" class="form-control" placeholder="مثال: P1 Small, XL..." required>
                         </div>
                         <div class="col-md-3">
                             <label class="small fw-bold">نوع الصندوق المستخدم *</label>
@@ -155,7 +161,7 @@
                         </div>
                         <div class="col-md-2">
                             <label class="small fw-bold">عدد الصناديق *</label>
-                            <input type="number" name="box_count[]" class="form-control box-count-input" min="1" value="80" required>
+                            <input type="number" name="box_count[]" class="form-control box-count-input" min="1" required>
                         </div>
                         <div class="col-md-3">
                             <label class="small fw-bold">الوزن الصافي للطبلية (كغ) *</label>
@@ -185,31 +191,8 @@
                                 </small>
                             </div>
                         </div>
-
-                        <!-- صناديق الفارغ (من المزرعة) المستهلكة في هذا الناتج -->
-                        <div class="col-12">
-                            <div class="border rounded bg-light p-2 mt-1">
-                                <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <span class="small fw-bold text-secondary">
-                                        <i class="bi bi-recycle me-1"></i> صناديق الفارغ (من المزرعة) المستهلكة في هذا المقاس (اختياري)
-                                    </span>
-                                    <button type="button" class="btn btn-outline-primary btn-sm add-fe-row"
-                                            {% if not farm_box_types %}disabled title="لا يوجد فارغ متاح من صناديق المزرعة حالياً"{% endif %}>
-                                        <i class="bi bi-plus-lg me-1"></i> إضافة فارغ
-                                    </button>
-                                </div>
-                                <div class="fe-items-container" data-fe-container></div>
-                                <small class="text-muted d-block mt-1">
-                                    {% if farm_box_types %}
-                                    يُخصم العدد المُدخل من رصيد الفارغ المتاح لذلك النوع، فلا يُسلَّم نفس الفارغ مرتين.
-                                    {% else %}
-                                    لا يوجد رصيد فارغ متاح حالياً من صناديق المزرعة؛ سجّل الصناديق الواردة أولاً من صفحة «صناديق المزرعة».
-                                    {% endif %}
-                                </small>
-                            </div>
-                        </div>
                     </div>
-                </div>
+                </template>
 
                 <button type="button" class="btn btn-outline-success btn-sm mt-2 mb-4" id="addOutputRow">
                     <i class="bi bi-plus-circle me-1"></i> إضافة مقاس ناتج آخر
@@ -246,10 +229,50 @@
                     </div>
                 </template>
 
-                <!-- قالب سطر فارغ مزرعة واحد يُستنسخ بواسطة JS داخل كل سطر ناتج -->
+                <h6 class="fw-bold text-danger border-bottom pb-2 mb-3">2. الهالك والفرز المستبعد:</h6>
+                <div id="wasteContainer">
+                    <div class="row g-2 align-items-end mb-2 waste-row">
+                        <div class="col-md-6">
+                            <label class="small fw-bold">تصنيف الهالك</label>
+                            <input type="text" name="waste_type[]" class="form-control" placeholder="مثال: ضربات / تلف / صغير غير مطابق" value="تالف وفرز استبعاد">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="small fw-bold">وزن الهالك (كغ)</label>
+                            <input type="number" step="0.001" name="waste_weight[]" class="form-control waste-weight-input" value="0.000">
+                        </div>
+                    </div>
+                </div>
+
+                <!--
+                    قسم مستقل: صناديق الفارغ (من المزرعة) المستهلكة في البرارة والتالف.
+                    هذا القسم مخصّص للبرارة والفرز المستبعد فقط، وليس لنواتج المقاسات.
+                -->
+                <h6 class="fw-bold text-danger border-bottom pb-2 mb-3 mt-4">
+                    <i class="bi bi-recycle me-1"></i> 3. صناديق الفارغ (من المزرعة) المستهلكة في البرارة والتالف:
+                </h6>
+                <div class="border rounded bg-light p-3 mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="small fw-bold text-secondary">
+                            تُخصم هذه الأعداد من رصيد الفارغ المتاح حتى لا يُسلَّم نفس الفارغ مرتين.
+                        </span>
+                        <button type="button" class="btn btn-outline-primary btn-sm" id="addFarmEmptyRow"
+                                {% if not farm_box_types %}disabled title="لا يوجد فارغ متاح من صناديق المزرعة حالياً"{% endif %}>
+                            <i class="bi bi-plus-lg me-1"></i> إضافة فارغ
+                        </button>
+                    </div>
+                    <div class="fe-items-container" id="farmEmptyContainer"></div>
+                    <small class="text-muted d-block mt-1">
+                        {% if farm_box_types %}
+                        أدخل نوع الصندوق الفارغ وعدد البرارة/التالف المستخدم فيه. يُخصم العدد من الرصيد المتاح.
+                        {% else %}
+                        لا يوجد رصيد فارغ متاح حالياً من صناديق المزرعة؛ سجّل الصناديق الواردة أولاً من صفحة «صناديق المزرعة».
+                        {% endif %}
+                    </small>
+                </div>
+
+                <!-- قالب سطر فارغ مزرعة واحد (للبرارة والتالف) يُستنسخ بواسطة JS -->
                 <template id="farmEmptyTemplate">
-                    <div class="row g-2 align-items-center mb-1 fe-item-row" data-fe-row>
-                        <input type="hidden" name="fe_output_idx[]" class="fe-output-idx">
+                    <div class="row g-2 align-items-center mb-2 fe-item-row" data-fe-row>
                         <div class="col-md-6">
                             <select name="fe_type[]" class="form-select form-select-sm">
                                 <option value="">— اختر نوع الصندوق الفارغ —</option>
@@ -270,20 +293,6 @@
                         </div>
                     </div>
                 </template>
-
-                <h6 class="fw-bold text-danger border-bottom pb-2 mb-3">2. الهالك والفرز المستبعد:</h6>
-                <div id="wasteContainer">
-                    <div class="row g-2 align-items-end mb-2 waste-row">
-                        <div class="col-md-6">
-                            <label class="small fw-bold">تصنيف الهالك</label>
-                            <input type="text" name="waste_type[]" class="form-control" placeholder="مثال: ضربات / تلف / صغير غير مطابق" value="تالف وفرز استبعاد">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="small fw-bold">وزن الهالك (كغ)</label>
-                            <input type="number" step="0.001" name="waste_weight[]" class="form-control waste-weight-input" value="0.000">
-                        </div>
-                    </div>
-                </div>
 
                 <hr class="my-4">
                 <div class="alert alert-light border d-flex justify-content-between align-items-center">
@@ -529,6 +538,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const pkgTemplate = document.getElementById('pkgItemTemplate');
     const pkgGrandTotal = document.getElementById('pkgGrandTotal');
     const feTemplate = document.getElementById('farmEmptyTemplate');
+    const feContainer = document.getElementById('farmEmptyContainer');
     // كل سطر إدخال = طبلية موضبة واحدة، فلا يجوز تجاوز عدد طبالي الاستلام المتاحة
     const maxRows = {{ session.source_pallets.count|unlocalize }};
 
@@ -590,25 +600,11 @@ document.addEventListener('DOMContentLoaded', function() {
         refreshPkgTotals();
     }
 
-    // إعادة ترقيم أسطر فارغ المزرعة وضبط fe_output_idx[] حسب ترتيب سطر الناتج الحالي
-    function reindexFeRows() {
-        if (!container) return;
-        const rows = Array.from(container.querySelectorAll('.output-row'));
-        rows.forEach(function(row, idx) {
-            row.querySelectorAll('[data-fe-row]').forEach(function(feRow) {
-                const hidden = feRow.querySelector('.fe-output-idx');
-                if (hidden) hidden.value = idx;
-            });
-        });
-    }
-
-    function addFeRowTo(outputRow) {
-        if (!feTemplate) return;
-        const containerEl = outputRow.querySelector('[data-fe-container]');
-        if (!containerEl) return;
+    // قسم فارغ المزرعة مستقل تماماً عن أسطر النواتج (مخصّص للبرارة والتالف)
+    function addFarmEmptyRow() {
+        if (!feTemplate || !feContainer) return;
         const clone = feTemplate.content.cloneNode(true);
-        containerEl.appendChild(clone);
-        reindexFeRows();
+        feContainer.appendChild(clone);
     }
 
     function refreshCounter() {
@@ -622,8 +618,8 @@ document.addEventListener('DOMContentLoaded', function() {
             warning.classList.toggle('d-none', used <= maxRows);
         }
         if (addBtn) {
-            addBtn.disabled = used >= maxRows;
-            addBtn.title = used >= maxRows ? 'لا يمكن إضافة سطر أكثر من عدد الطبالي المتاحة' : '';
+            addBtn.disabled = maxRows > 0 && used >= maxRows;
+            addBtn.title = (maxRows > 0 && used >= maxRows) ? 'لا يمكن إضافة سطر أكثر من عدد الطبالي المتاحة' : '';
         }
         if (container) {
             const rowCount = container.querySelectorAll('.output-row').length;
@@ -632,7 +628,6 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
         reindexPkgRows();
-        reindexFeRows();
         refreshPkgTotals();
     }
 
@@ -641,17 +636,26 @@ document.addEventListener('DOMContentLoaded', function() {
             if (usedRows() >= maxRows) {
                 return;
             }
-            const firstRow = container.querySelector('.output-row');
-            const clone = firstRow.cloneNode(true);
-            // تفريغ الحقول الأساسية وعدم نسخ أصناف التغليف المختارة، مع إبقاء صفٍّ واحد فارغ
-            clone.querySelectorAll('input[name="size_name[]"], input[name="net_weight_kg[]"]').forEach(function(i) { i.value = ''; });
-            clone.querySelectorAll('[data-pkg-container]').forEach(function(c) { c.innerHTML = ''; });
-            clone.querySelectorAll('[data-fe-container]').forEach(function(c) {
-                // إبقاء خانة fe_output_idx المخفية فقط وتفريغ أسطر الفارغ
-                Array.from(c.querySelectorAll('[data-fe-row]')).forEach(function(r) { r.remove(); });
-            });
+            const outputTemplate = document.getElementById('outputRowTemplate');
+            if (!outputTemplate) return;
+            // بناء سطر ناتج جديد فارغ تماماً من القالب
+            const clone = outputTemplate.content.cloneNode(true);
             container.appendChild(clone);
             refreshCounter();
+        });
+    }
+
+    // قسم فارغ المزرعة مستقل: زر الإضافة وحذف الأسطر
+    if (feContainer) {
+        const addFeBtn = document.getElementById('addFarmEmptyRow');
+        if (addFeBtn) {
+            addFeBtn.addEventListener('click', addFarmEmptyRow);
+        }
+        feContainer.addEventListener('click', function(event) {
+            const removeFeBtn = event.target.closest('.remove-fe-row');
+            if (removeFeBtn) {
+                removeFeBtn.closest('[data-fe-row]').remove();
+            }
         });
     }
 
@@ -659,7 +663,6 @@ document.addEventListener('DOMContentLoaded', function() {
         container.addEventListener('click', function(event) {
             const removeBtn = event.target.closest('.remove-output-row');
             if (removeBtn) {
-                if (container.querySelectorAll('.output-row').length <= 1) return;
                 removeBtn.closest('.output-row').remove();
                 refreshCounter();
                 return;
@@ -667,16 +670,6 @@ document.addEventListener('DOMContentLoaded', function() {
             const addPkgBtn = event.target.closest('.add-pkg-row');
             if (addPkgBtn) {
                 addPkgRowTo(addPkgBtn.closest('.output-row'));
-                return;
-            }
-            const addFeBtn = event.target.closest('.add-fe-row');
-            if (addFeBtn) {
-                addFeRowTo(addFeBtn.closest('.output-row'));
-                return;
-            }
-            const removeFeBtn = event.target.closest('.remove-fe-row');
-            if (removeFeBtn) {
-                removeFeBtn.closest('[data-fe-row]').remove();
                 return;
             }
             const removePkgBtn = event.target.closest('.remove-pkg-row');

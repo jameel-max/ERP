@@ -163,24 +163,21 @@ def packing_finalize(request, pk):
                     'quantity': qty,
                 })
 
-            # قراءة صناديق الفارغ (من المزرعة) المستهلكة: كل صنف مرتبط برقم سطر الناتج
-            fe_output_idx = request.POST.getlist('fe_output_idx[]')
+            # قراءة صناديق الفارغ (من المزرعة) المستهلكة في البرارة والتالف:
+            # قسم مستقل تماماً عن أسطر النواتج، ويُسجَّل على مستوى الجلسة.
             fe_type_ids = request.POST.getlist('fe_type[]')
             fe_qtys = request.POST.getlist('fe_qty[]')
+            farm_empty_items = []
             for k in range(len(fe_type_ids)):
                 if not fe_type_ids[k]:
                     continue
                 try:
-                    out_idx = int(fe_output_idx[k]) if k < len(fe_output_idx) else 0
-                except (TypeError, ValueError):
-                    out_idx = 0
-                try:
                     fe_qty = int(fe_qtys[k] or 0)
                 except (TypeError, ValueError):
                     fe_qty = 0
-                if fe_qty <= 0 or out_idx < 0 or out_idx >= len(outputs_data):
+                if fe_qty <= 0:
                     continue
-                outputs_data[out_idx].setdefault('farm_empty_items', []).append({
+                farm_empty_items.append({
                     'farm_box_type': fe_type_ids[k],
                     'quantity': fe_qty,
                 })
@@ -201,6 +198,7 @@ def packing_finalize(request, pk):
                 session=session,
                 outputs_data=outputs_data,
                 wastes_data=wastes_data,
+                farm_empty_items=farm_empty_items,
                 user=request.user
             )
 
