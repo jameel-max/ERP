@@ -22,6 +22,7 @@ from .attachments import MAX_IMAGES_PER_OBJECT, is_attachable, save_uploaded_ima
 from .wipe_service import wipe_database, CONFIRM_PHRASE
 from operations.models import TruckReceipt, Pallet, ColdStore, BoxType, Trader
 from operations.models import annotate_cold_store_occupancy, annotate_shelf_occupancy
+from operations.models import annotate_remaining_net_weight
 from invoicing.models import Invoice
 
 
@@ -70,10 +71,14 @@ def home(request):
         return render(request, 'core/home.html', cached)
 
     # استعلامات مجمّعة واحدة بدل عدة استعلامات (لأن قاعدة البيانات خارجية والشبكة بطيئة)
-    pallet_stats = Pallet.objects.filter(status=Pallet.Status.IN_COOLING).aggregate(
+    # ملاحظة: نجمع الرصيد المتبقي فعلاً (لا كامل صناديق الطبلية)، لأن الطبلية قد
+    # تُسحب جزئياً وتعود مخزوناً إلى البراد برصيد أقل.
+    pallet_stats = annotate_remaining_net_weight(
+        Pallet.objects.filter(status=Pallet.Status.IN_COOLING)
+    ).aggregate(
         count=Count('id'),
-        boxes=Sum('box_count'),
-        net=Sum('estimated_net_weight'),
+        boxes=Sum('remaining_box_count'),
+        net=Sum('remaining_estimated_net_weight'),
     )
 
     # 1. سيارات اليوم
@@ -85,7 +90,10 @@ def home(request):
     cooling_net_weight = pallet_stats['net'] or Decimal('0.000')
 
     # 3. طبالي قيد التوضيب + 4. رصيد الصناديق الفارغة (استعلام مزدوج واحد)
-    dual = Pallet.objects.filter(status=Pallet.Status.OUT_FOR_PACKING).aggregate(c=Count('id'))
+    # (تشمل الطبالي المفتوحة جزئياً «خام متبقٍ» فهي خارج البراد وفي منطقة التوضيب)
+    dual = Pallet.objects.filter(
+        status__in=[Pallet.Status.OUT_FOR_PACKING, Pallet.Status.OPEN_PARTIAL]
+    ).aggregate(c=Count('id'))
     packing_pallets_count = dual['c'] or 0
     total_crates_stock = BoxType.objects.aggregate(total=Sum('company_stock'))['total'] or 0
 

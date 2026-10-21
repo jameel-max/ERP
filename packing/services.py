@@ -182,8 +182,12 @@ class PackingService:
 
         session_code = PackingSession.generate_session_code()
 
-        # حساب الوزن الصافي الإجمالي الداخل للتوضيب
-        input_weight = sum(p.estimated_net_weight for p in source_pallets)
+        # حساب الوزن الصافي الإجمالي الداخل للتوضيب.
+        # الطبلية المفتوحة جزئياً (سُحبت منها صناديق في عملية سابقة) لا تُحتسب بكامل
+        # وزنها، بل بقدر ما تبقّى فيها فعلاً — فالأساس هو الكمية المتاحة لا عدد الطبالي.
+        input_weight = Decimal('0.000')
+        for p in source_pallets:
+            input_weight += (Decimal(p.estimated_net_weight) * p.remaining_ratio).quantize(Decimal('0.001'))
 
         session = PackingSession.objects.create(
             session_code=session_code,
@@ -201,6 +205,13 @@ class PackingService:
         # تحديث حالة الطبالي المسحوبة من البراد وتسجيل حركتها
         now = timezone.now()
         for p in source_pallets:
+            if p.status == Pallet.Status.OPEN_PARTIAL:
+                # الطبلية مخرجة من البراد أصلاً ومتبقٍ فيها خام: تُستخدم كما هي،
+                # بلا إخراج جديد من البراد (حركتها الأولى موثّقة في جلستها السابقة).
+                p.status = Pallet.Status.OUT_FOR_PACKING
+                p.save(update_fields=['status'])
+                continue
+
             p.status = Pallet.Status.OUT_FOR_PACKING
             p.exited_cooling_at = now
             p.save()
@@ -932,7 +943,7 @@ class PackingService:
             else:
                 # تسوية/إتلاف معتمد: يُصفَّر الرصيد وتُغلق الطبلية (بلا قيود مالية تلقائية)
                 locked.remaining_box_count = 0
-                locked.status = Pallet.Status.PACKED
+                locked.status = Pallet.Status.CONSUMED
                 locked.save(update_fields=['remaining_box_count', 'status'])
                 PalletMovementLog.objects.create(
                     pallet=locked,

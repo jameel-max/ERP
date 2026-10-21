@@ -1,9 +1,33 @@
 from django.db import models
-from django.db.models import Count
+from django.db.models import Count, Case, When, Value, F, ExpressionWrapper, DecimalField
 from django.utils import timezone
 from django.conf import settings
 from decimal import Decimal, ROUND_HALF_UP
 import json
+
+
+def annotate_remaining_net_weight(queryset):
+    """
+    يُرفق بالاستعلام الحقل `remaining_estimated_net_weight`:
+    الوزن التقديري المتبقي في الطبلية بعد خصم الصناديق المستهلكة منها.
+
+    يُستخدم في reports/lists التي تجمع أوزان الطبالي المتوفرة فعلياً،
+    لأن الطبلية قد تُسحب جزئياً وتعود مخزوناً إلى البراد برصيد أقل من كامل صناديقها.
+    """
+    weight_expr = Case(
+        When(
+            box_count__gt=0,
+            then=F('remaining_box_count') * F('estimated_net_weight') / F('box_count'),
+        ),
+        default=Value(Decimal('0.000')),
+        output_field=DecimalField(max_digits=14, decimal_places=3),
+    )
+    return queryset.annotate(
+        remaining_estimated_net_weight=ExpressionWrapper(
+            weight_expr,
+            output_field=DecimalField(max_digits=14, decimal_places=3),
+        )
+    )
 
 
 class Trader(models.Model):
@@ -646,6 +670,7 @@ class Pallet(models.Model):
         OUT_FOR_PACKING = 'OUT_FOR_PACKING', 'خرجت للتوضيب'
         OPEN_PARTIAL = 'OPEN_PARTIAL', 'مفتوحة (خام متبقٍ)'
         PACKED = 'PACKED', 'موضبة'
+        CONSUMED = 'CONSUMED', 'مستهلكة (تسوية معتمدة)'
         DELIVERED = 'DELIVERED', 'مسلّمة'
 
     pallet_code = models.CharField(
@@ -772,6 +797,21 @@ class Pallet(models.Model):
             return Decimal('0')
         used = min(self.consumed_box_count, self.box_count)
         return (Decimal(used) / Decimal(self.box_count)).quantize(Decimal('0.000001'))
+
+    @property
+    def remaining_ratio(self):
+        """نسبة ما تبقّى من صناديق الطبلية (0..1) — أساس تقدير الوزن المتاح."""
+        if not self.box_count:
+            return Decimal('0')
+        remaining = max(0, min(self.remaining_box_count, self.box_count))
+        return (Decimal(remaining) / Decimal(self.box_count)).quantize(Decimal('0.000001'))
+
+    @property
+    def remaining_estimated_net_weight(self):
+        """الوزن التقديري المتبقي في الطبلية بعد خصم ما استُهلك منها."""
+        if not self.box_count:
+            return Decimal('0.000')
+        return (Decimal(self.estimated_net_weight) * self.remaining_ratio).quantize(Decimal('0.001'))
 
     @property
     def days_in_cooling(self):

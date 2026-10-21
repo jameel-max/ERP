@@ -5,7 +5,10 @@ from operations.models import Trader, Crop, Pallet, BoxType, ColdStore, Shelf
 
 class StartPackingSessionForm(forms.ModelForm):
     source_pallets = forms.ModelMultipleChoiceField(
-        queryset=Pallet.objects.filter(status=Pallet.Status.IN_COOLING),
+        queryset=Pallet.objects.filter(
+            status__in=[Pallet.Status.IN_COOLING, Pallet.Status.OPEN_PARTIAL],
+            remaining_box_count__gt=0,
+        ),
         widget=forms.SelectMultiple(attrs={'class': 'form-select select2', 'size': '6'}),
         label='اختر الطبالي لإخراجها من البراد للبدء بالتوضيب'
     )
@@ -29,10 +32,17 @@ class StartPackingSessionForm(forms.ModelForm):
         if instance is not None and instance.pk:
             current = instance.source_pallets.all()
             self.fields['source_pallets'].queryset = (
-                Pallet.objects.filter(status=Pallet.Status.IN_COOLING) | current
+                Pallet.objects.filter(
+                    status__in=[Pallet.Status.IN_COOLING, Pallet.Status.OPEN_PARTIAL],
+                    remaining_box_count__gt=0,
+                ) | current
             ).distinct()
-        # تخصيص عرض الطبالي في القائمة
-        self.fields['source_pallets'].label_from_instance = lambda obj: f"{obj.pallet_code} - {obj.trader.name} ({obj.crop.name} - {obj.box_count} صندوق - {obj.cold_store.name})"
+        # تخصيص عرض الطبالي في القائمة: يُبيَّن رصيد الصناديق المتبقي فعلياً
+        # (الطبلية المفتوحة جزئياً تُعرض بما تبقّى منها لا بكامل صناديقها).
+        self.fields['source_pallets'].label_from_instance = lambda obj: (
+            f"{obj.pallet_code} - {obj.trader.name} ({obj.crop.name} - "
+            f"{obj.remaining_box_count} صندوق متبقٍ من {obj.box_count} - {obj.cold_store.name})"
+        )
 
 
 class PackedPalletCoolingForm(forms.Form):

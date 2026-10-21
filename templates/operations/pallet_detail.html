@@ -95,6 +95,23 @@
                         </div>
                         <div class="col-md-6">
                             <div class="bg-light p-3 rounded border">
+                                <div class="text-muted small">رصيد الصناديق المتبقي في الطبلية</div>
+                                <div class="fs-5 fw-bold {{ pallet.remaining_box_count|default:0 }}">
+                                    {% if pallet.remaining_box_count == pallet.box_count and pallet.consumed_box_count == 0 %}text-dark{% else %}text-warning{% endif %}
+                                    {{ pallet.remaining_box_count }} صندوق
+                                </div>
+                                {% if pallet.consumed_box_count %}
+                                <div class="small text-muted mt-1">
+                                    سُحبت من هذه الطبلية: <strong>{{ pallet.consumed_box_count }}</strong> صندوق
+                                    {% if pallet.remaining_estimated_net_weight != pallet.estimated_net_weight %}
+                                    — الوزن المتبقي التقديري: {{ pallet.remaining_estimated_net_weight }} كغ
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="bg-light p-3 rounded border">
                                 <div class="text-muted small">الوزن الصافي التقديري</div>
                                 <div class="fs-5 fw-bold text-success">{{ pallet.estimated_net_weight }} كغ</div>
                             </div>

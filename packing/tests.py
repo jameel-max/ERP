@@ -1671,6 +1671,49 @@ class PackingQuantityLedgerTests(TestCase):
         stored = [str(m) for m in resp.wsgi_request._messages]
         self.assertTrue(any('كميات خام متبقية' in m for m in stored))
 
+    # ---------------- واجهة المستخدم: عرض الصفحات الجديدة ----------------
+
+    def test_detail_page_renders_ledger_leftovers_and_question(self):
+        """صفحة التفاصيل تعرض دفتر الكميات الخام والمتبقي وسؤال المحاسب."""
+        session = self._start_session([self.pallets[0]])
+        PackingService.record_outputs_and_finalize(
+            session, [self._output()],
+            allocations=[[{'source_pallet': self.pallets[0].id, 'box_count': 10}]],
+            all_packed=False, user=self.accountant,
+        )
+        client = Client()
+        client.force_login(self.accountant)
+        resp = client.get(reverse('packing_detail', args=[session.pk]))
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode('utf-8')
+        # دفتر الكميات الخام
+        self.assertIn('دفتر الكميات الخام', body)
+        # سؤال المحاسب
+        self.assertIn('هل تم توضيب جميع الكميات الخام', body)
+        self.assertIn('all_packed', body)
+        # عرض الطبلية المفتوحة ومتبقيها
+        self.assertIn('كميات خام متبقية غير محسومة', body)
+
+    def test_add_raw_and_settle_pages_render(self):
+        session = self._start_session([self.pallets[0]])
+        PackingService.record_outputs_and_finalize(
+            session, [self._output()],
+            allocations=[[{'source_pallet': self.pallets[0].id, 'box_count': 10}]],
+            all_packed=False, user=self.accountant,
+        )
+        client = Client()
+        client.force_login(self.accountant)
+
+        resp = client.get(reverse('packing_add_raw', args=[session.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('إضافة طبالي خام', resp.content.decode('utf-8'))
+
+        resp = client.get(reverse('packing_settle_leftovers', args=[session.pk]))
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode('utf-8')
+        self.assertIn('تسوية الكميات الخام المتبقية', body)
+        self.assertIn('WRITE_OFF', body)
+
     # ---------------- دفتر التدقيق ----------------
 
     def test_audit_log_records_sources_and_confirmation(self):
