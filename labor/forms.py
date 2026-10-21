@@ -1,7 +1,7 @@
 from django import forms
 from django.utils import timezone
 from decimal import Decimal
-from .models import Workshop, DailyLaborLog, Employee, EmployeeSalaryPayment
+from .models import Workshop, DailyLaborLog, Employee, EmployeeSalaryPayment, EmployeeDeduction
 
 
 class WorkshopForm(forms.ModelForm):
@@ -64,6 +64,53 @@ class EmployeeForm(forms.ModelForm):
         return salary
 
 
+class EmployeeDeductionForm(forms.ModelForm):
+    """
+    تسجيل خصم على راتب موظف (غياب/سلفة/تأخير/جزاء/أخرى) لشهر محدد.
+    """
+    MONTH_CHOICES = [
+        (1, 'كانون الثاني (1)'), (2, 'شباط (2)'), (3, 'آذار (3)'),
+        (4, 'نيسان (4)'), (5, 'أيار (5)'), (6, 'حزيران (6)'),
+        (7, 'تموز (7)'), (8, 'آب (8)'), (9, 'أيلول (9)'),
+        (10, 'تشرين الأول (10)'), (11, 'تشرين الثاني (11)'), (12, 'كانون الأول (12)'),
+    ]
+
+    year = forms.IntegerField(
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'min': '2000', 'max': '2100'}),
+        initial=lambda: timezone.now().year,
+        label='السنة',
+    )
+    month = forms.TypedChoiceField(
+        choices=MONTH_CHOICES,
+        coerce=int,
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        initial=lambda: timezone.now().month,
+        label='الشهر',
+    )
+
+    class Meta:
+        model = EmployeeDeduction
+        fields = ['deduction_type', 'year', 'month', 'amount', 'deduction_date', 'reason']
+        widgets = {
+            'deduction_type': forms.Select(attrs={'class': 'form-select'}),
+            'amount': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.001', 'min': '0'}),
+            'deduction_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'reason': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'مثال: غياب 3 أيام'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        now = timezone.now()
+        self.fields['year'].initial = now.year
+        self.fields['month'].initial = now.month
+
+    def clean_amount(self):
+        amount = self.cleaned_data.get('amount')
+        if amount is None or amount <= 0:
+            raise forms.ValidationError('مبلغ الخصم يجب أن يكون أكبر من صفر.')
+        return amount
+
+
 class EmployeeSalaryPaymentForm(forms.ModelForm):
     """
     صرف راتب شهري لموظف.
@@ -91,6 +138,9 @@ class EmployeeSalaryPaymentForm(forms.ModelForm):
     class Meta:
         model = EmployeeSalaryPayment
         fields = ['employee', 'year', 'month', 'amount', 'status', 'payment_date', 'treasury_account', 'notes']
+        labels = {
+            'amount': 'الراتب الأساسي قبل الخصم (دينار)',
+        }
         widgets = {
             'employee': forms.Select(attrs={'class': 'form-select'}),
             'amount': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.001', 'min': '0'}),

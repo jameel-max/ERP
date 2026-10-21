@@ -391,6 +391,55 @@ class EmptyBoxDeliveryViewTests(TestCase):
         self.assertEqual(response.status_code, 200)  # خطأ في النموذج لا 500
         self.assertContains(response, 'مكرر')
 
+    def test_empty_boxes_page_renders_with_consumption_rows(self):
+        """
+        حماية من خطأ HTTP 500 على /empty-boxes/:
+        الصفحة تقرأ جدول استهلاك الفارغ في التوضيب، لذا يجب أن تُصيَّر بنجاح
+        حتى عند وجود صفوف استهلاك فعلية (وليس فقط حالة فارغة).
+
+        هذا الاختبار يفشل لو كان ترحيل boxes.0008_farm_empty_box_consumption
+        غير مطبّق أو حُذف، لأن الصفحة تستعلم عن الجدول مباشرة.
+        """
+        from operations.models import Crop, TruckReceipt, ColdStore
+        from boxes.models import FarmBoxType, FarmBoxRecord
+
+        crop = Crop.objects.create(name='بندورة اختبار')
+        cold_store = ColdStore.objects.create(
+            code='CS-EBV', name='براد اختبار', capacity_pallets=10
+        )
+        truck = TruckReceipt.objects.create(
+            lot_number='2026-EBV1', trader=self.trader, crop=crop,
+            box_type=self.farm_box_type, box_count=100,
+            gross_weight=Decimal('2000.000'), tare_weight=Decimal('500.000'),
+            cold_store=cold_store,
+        )
+        FarmBoxRecord.objects.create(
+            trader=self.trader, truck_receipt=truck,
+            incoming_count=100, empty_count=100, recorded_by=self.accountant,
+        )
+        # استهلاك فعلي داخل التوضيب: الصفحة يجب أن تعرض الرصيد بعد الخصم (60)
+        EmptyBoxService.record_packing_consumption(
+            farm_box_type=self.farm_box_type, quantity=40,
+            trader=self.trader, user=self.accountant,
+        )
+
+        client = self.client
+        client.force_login(self.accountant)
+        response = client.get(reverse('empty_box_delivery_list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'تسليم الفارغ')
+        # الرصيد المتاح بعد الاستهلاك = 100 − 40 = 60
+        self.assertContains(response, '60')
+
+    def test_consumption_model_table_is_reachable(self):
+        """
+        فحص مباشر أن جدول FarmEmptyBoxConsumption قابل للاستعلام عليه في قاعدة
+        البيانات المُهيّأة (يكشف ترحيلًا ناقصًا مبكرًا وبرسالة واضحة بدل 500).
+        """
+        from boxes.models import FarmEmptyBoxConsumption
+        self.assertEqual(FarmEmptyBoxConsumption.objects.count(), 0)
+        self.assertEqual(EmptyBoxService.consumed_in_packing(), {})
+
 
 class FarmEmptyBoxConsumptionTests(TestCase):
     """

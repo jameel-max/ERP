@@ -159,10 +159,35 @@ class InvoiceService:
         return invoice
 
     @classmethod
+    def _pdf_item_label(cls, item):
+        """ترجمة نوع البند إلى تسمية عربية واضحة تُعرض في جدول بنود PDF."""
+        mapping = {
+            InvoiceItem.ItemType.PACKING: 'أجور توضيب',
+            InvoiceItem.ItemType.BOX_DEDUCTION: 'بدل عجز صناديق',
+            InvoiceItem.ItemType.COOLING: 'أجرة تبريد',
+            InvoiceItem.ItemType.SERVICE: 'خدمات إضافية',
+            InvoiceItem.ItemType.DISCOUNT: 'خصم',
+        }
+        return mapping.get(item.item_type, item.get_item_type_display())
+
+    @classmethod
     def generate_pdf(cls, invoice):
         """
-        توليد ملف PDF احترافي للفاتورة بتصميم رويال فروت
+        توليد ملف PDF احترافي للفاتورة بتصميم رويال فروت — بدعم عربي كامل (RTL).
+
+        يُستخدم خط Amiri العربي المحلي (static/fonts) بدل Helvetica، مع تشكيل
+        الحروف العربية وترتيب الاتجاه، حتى لا تظهر مربعات سوداء.
+
+        لا يتغيّر أي رقم أو قاعدة حساب: كل القيم تُقرأ من الفاتورة المحفوظة كما هي.
         """
+        from core.pdf_fonts import (
+            register_arabic_fonts, arabic, ARABIC_FONT, ARABIC_FONT_BOLD,
+        )
+
+        has_arabic_font = register_arabic_fonts()
+        base_font = ARABIC_FONT if has_arabic_font else 'Helvetica'
+        bold_font = ARABIC_FONT_BOLD if has_arabic_font else 'Helvetica-Bold'
+
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(
             buffer,
@@ -178,78 +203,181 @@ class InvoiceService:
         title_style = ParagraphStyle(
             'TitleStyle',
             parent=styles['Heading1'],
+            fontName=bold_font,
             fontSize=18,
-            leading=22,
+            leading=24,
             textColor=colors.HexColor('#1B4D3E'),
             alignment=1
         )
         subtitle_style = ParagraphStyle(
             'SubtitleStyle',
             parent=styles['Normal'],
+            fontName=base_font,
             fontSize=10,
-            leading=14,
+            leading=16,
             textColor=colors.HexColor('#555555'),
             alignment=1
         )
+        cell_style = ParagraphStyle(
+            'CellStyle',
+            parent=styles['Normal'],
+            fontName=base_font,
+            fontSize=9,
+            leading=13,
+            textColor=colors.HexColor('#222222'),
+        )
+        cell_bold_style = ParagraphStyle(
+            'CellBoldStyle',
+            parent=cell_style,
+            fontName=bold_font,
+        )
+        head_style = ParagraphStyle(
+            'HeadStyle',
+            parent=cell_style,
+            fontName=bold_font,
+            textColor=colors.white,
+            alignment=1,
+        )
+        num_style = ParagraphStyle(
+            'NumStyle',
+            parent=cell_style,
+            alignment=2,  # محاذاة الأرقام لليسار داخل الخلية دون انعكاس
+        )
+        num_bold_style = ParagraphStyle(
+            'NumBoldStyle',
+            parent=cell_bold_style,
+            alignment=2,
+        )
 
-        elements.append(Paragraph("ROYAL FRUIT PACKHOUSE - مشغل رويال فروت", title_style))
-        elements.append(Paragraph("فاتورة حساب المشغل والتوضيب المعتمدة", subtitle_style))
-        elements.append(Spacer(1, 15))
+        # ------- الترويسة -------
+        elements.append(Paragraph(arabic('مشغل رويال فروت'), title_style))
+        elements.append(Paragraph(arabic('ROYAL FRUIT PACKHOUSE'), subtitle_style))
+        elements.append(Paragraph(arabic('فاتورة حساب المشغل والتوضيب المعتمدة'), subtitle_style))
+        elements.append(Spacer(1, 12))
 
-        # بيانات الفاتورة والتاجر
-        info_data = [
-            [f"Invoice No: {invoice.invoice_number}", f"Date: {invoice.created_at.strftime('%Y-%m-%d')}"],
-            [f"Trader: {invoice.trader.name} ({invoice.trader.code})", f"Crop: {invoice.crop.name} - Year {invoice.year}"],
-            [f"Packing Method: {invoice.get_packing_method_display()}", f"Status: {invoice.get_status_display()}"],
+        # ------- بيانات الفاتورة والتاجر -------
+        # الأرقام والأكواد تُعرض بترتيبها الأصلي (لا تُشكَّل) حتى لا تنعكس.
+        def _pair(label_ar, value):
+            return Paragraph(arabic(label_ar), cell_style), Paragraph(str(value), num_style)
+
+        info_rows = [
+            [Paragraph(arabic('رقم الفاتورة'), cell_bold_style), Paragraph(str(invoice.invoice_number), num_bold_style),
+             Paragraph(arabic('التاريخ'), cell_bold_style), Paragraph(invoice.created_at.strftime('%Y-%m-%d'), num_style)],
+            [Paragraph(arabic('التاجر'), cell_bold_style), Paragraph(arabic(f'{invoice.trader.name} ({invoice.trader.code})'), cell_style),
+             Paragraph(arabic('نوع البضاعة'), cell_bold_style), Paragraph(arabic(f'{invoice.crop.name} — {invoice.year}'), cell_style)],
+            [Paragraph(arabic('طريقة التوضيب'), cell_bold_style), Paragraph(arabic(invoice.get_packing_method_display()), cell_style),
+             Paragraph(arabic('حالة الفاتورة'), cell_bold_style), Paragraph(arabic(invoice.get_status_display()), cell_style)],
         ]
-        info_table = Table(info_data, colWidths=[270, 270])
+        info_table = Table(info_rows, colWidths=[70, 200, 80, 190])
         info_table.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f8f9fa')),
-            ('TEXTCOLOR', (0,0), (-1,-1), colors.HexColor('#222222')),
-            ('FONTSIZE', (0,0), (-1,-1), 9),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e8f0')),
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8f9fa')),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
         ]))
         elements.append(info_table)
-        elements.append(Spacer(1, 15))
+        elements.append(Spacer(1, 14))
 
-        # جدول البنود
-        items_data = [["Item Description / البيان", "Qty / الكمية", "Rate / السعر", "Total / الإجمالي"]]
+        # ------- جدول البنود (البنود فقط كما هي محفوظة) -------
+        items_rows = [[
+            Paragraph(arabic('البيان'), head_style),
+            Paragraph(arabic('النوع'), head_style),
+            Paragraph(arabic('الكمية / الوزن'), head_style),
+            Paragraph(arabic('سعر الوحدة (د.أ)'), head_style),
+            Paragraph(arabic('الإجمالي (د.أ)'), head_style),
+        ]]
         for item in invoice.items.all():
-            items_data.append([
-                item.description,
-                f"{item.quantity}",
-                f"{item.unit_price} JOD",
-                f"{item.total_price} JOD"
+            items_rows.append([
+                Paragraph(arabic(item.description), cell_style),
+                Paragraph(arabic(cls._pdf_item_label(item)), cell_style),
+                Paragraph(f"{item.quantity}", num_style),
+                Paragraph(f"{item.unit_price}", num_style),
+                Paragraph(f"{item.total_price}", num_bold_style),
             ])
+        if len(items_rows) == 1:
+            items_rows.append([Paragraph(arabic('لا توجد بنود على هذه الفاتورة بعد.'), cell_style), '', '', '', ''])
 
-        # الإجماليات
-        items_data.append(["Packing Subtotal / مجموع أجور التوضيب", "", "", f"{invoice.packing_subtotal} JOD"])
-        if invoice.box_discount_subtotal > 0:
-            items_data.append(["Box Deficit Discount / خصم عجز الصناديق", "", "", f"+{invoice.box_discount_subtotal} JOD"])
-        if invoice.cooling_subtotal > 0:
-            items_data.append(["Cooling Service / أجرة تبريد يومية للطبالي الموضبة", "", "", f"+{invoice.cooling_subtotal} JOD"])
-        if invoice.other_services > 0:
-            items_data.append(["Additional Services / خدمات إضافية", "", "", f"+{invoice.other_services} JOD"])
-        if invoice.general_discount > 0:
-            items_data.append(["General Discount / خصم عام", "", "", f"-{invoice.general_discount} JOD"])
-        items_data.append(["GRAND TOTAL / الإجمالي النهائي المستحق", "", "", f"{invoice.grand_total} JOD"])
-
-        items_table = Table(items_data, colWidths=[280, 80, 90, 90])
+        items_table = Table(items_rows, colWidths=[210, 80, 80, 80, 90], repeatRows=1)
         items_table.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1B4D3E')),
-            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-            ('FONTSIZE', (0,0), (-1,0), 9),
-            ('BOTTOMPADDING', (0,0), (-1,0), 6),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cccccc')),
-            ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor('#e8f5e9')),
-            ('TEXTCOLOR', (0,-1), (-1,-1), colors.HexColor('#1B4D3E')),
-            ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1B4D3E')),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cccccc')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
         ]))
         elements.append(items_table)
-        elements.append(Spacer(1, 20))
+        elements.append(Spacer(1, 14))
 
-        elements.append(Paragraph("Certified by Royal Fruit Management &bull; الدينار الأردني بثلاث خانات عشرية", subtitle_style))
+        # ------- جدول المجاميع (منفصل عن البنود) -------
+        # ملاحظة: بدل عجز الصناديق مبلغ يُطالَب به التاجر ويُضاف في calculate_totals،
+        # لذا يُعرض بعلامة (+) وبتسمية «بدل عجز صناديق» لا «خصم».
+        summary_rows = [
+            [Paragraph(arabic('مجموع أجور التوضيب'), cell_style),
+             Paragraph(f"{invoice.packing_subtotal}", num_bold_style)],
+        ]
+        if invoice.box_discount_subtotal > 0:
+            summary_rows.append([
+                Paragraph(arabic('بدل عجز صناديق فارغة (مبلغ يُطالَب به التاجر)'), cell_style),
+                Paragraph(f"+ {invoice.box_discount_subtotal}", num_style),
+            ])
+        if invoice.cooling_subtotal > 0:
+            summary_rows.append([
+                Paragraph(arabic('أجرة تبريد يومية للطبالي الموضبة'), cell_style),
+                Paragraph(f"+ {invoice.cooling_subtotal}", num_style),
+            ])
+        if invoice.other_services > 0:
+            summary_rows.append([
+                Paragraph(arabic('خدمات إضافية (أصناف تغليف وغيرها)'), cell_style),
+                Paragraph(f"+ {invoice.other_services}", num_style),
+            ])
+        if invoice.general_discount > 0:
+            summary_rows.append([
+                Paragraph(arabic('خصم عام'), cell_style),
+                Paragraph(f"- {invoice.general_discount}", num_style),
+            ])
+        summary_rows.append([
+            Paragraph(arabic('الإجمالي النهائي المستحق (دينار أردني)'), cell_bold_style),
+            Paragraph(f"{invoice.grand_total}", num_bold_style),
+        ])
+        if invoice.paid_amount > 0:
+            summary_rows.append([
+                Paragraph(arabic('المبلغ المسدد'), cell_style),
+                Paragraph(f"- {invoice.paid_amount}", num_style),
+            ])
+            summary_rows.append([
+                Paragraph(arabic('المبلغ المتبقي'), cell_bold_style),
+                Paragraph(f"{invoice.remaining_balance}", num_bold_style),
+            ])
+
+        summary_table = Table(summary_rows, colWidths=[400, 140])
+        summary_table.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cccccc')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('BACKGROUND', (0, len(summary_rows) - 1), (-1, len(summary_rows) - 1), colors.HexColor('#e8f5e9')),
+        ]))
+        elements.append(summary_table)
+        elements.append(Spacer(1, 22))
+
+        # ------- التوقيع والذيل -------
+        sign_table = Table(
+            [[Paragraph(arabic('توقيع المحاسب'), cell_style), Paragraph(arabic('توقيع إدارة المشغل'), cell_style)]],
+            colWidths=[270, 270],
+        )
+        sign_table.setStyle(TableStyle([
+            ('LINEABOVE', (0, 0), (-1, 0), 0.5, colors.HexColor('#999999')),
+            ('TOPPADDING', (0, 0), (-1, 0), 12),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ]))
+        elements.append(sign_table)
+        elements.append(Spacer(1, 12))
+
+        elements.append(Paragraph(
+            arabic('معتمد من إدارة رويال فروت — العملة: الدينار الأردني بثلاث خانات عشرية'),
+            subtitle_style,
+        ))
 
         doc.build(elements)
         buffer.seek(0)

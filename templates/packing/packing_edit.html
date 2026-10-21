@@ -21,7 +21,7 @@
                         التعديل متاح للمسودة فقط. عند تغيير الطبالي المصدر، تُعاد الطبالي المُزالة إلى البراد
                         في نفس السيخ، وتُخرج الطبالي المُضافة للتوضيب، ويُعاد احتساب وزن الداخل تلقائياً.
                     </div>
-                    <form method="post">
+                    <form method="post" data-ajax="1">
                         {% csrf_token %}
                         {% if form.errors %}
                         <div class="alert alert-danger border-0 small">

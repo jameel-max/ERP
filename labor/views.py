@@ -8,8 +8,11 @@ from datetime import date, timedelta
 
 from core.permissions import accountant_required, manager_required
 from core.models import SystemSetting
-from .models import Workshop, DailyLaborLog, Employee, EmployeeSalaryPayment
-from .forms import WorkshopForm, DailyLaborLogForm, EmployeeForm, EmployeeSalaryPaymentForm
+from .models import Workshop, DailyLaborLog, Employee, EmployeeSalaryPayment, EmployeeDeduction
+from .forms import (
+    WorkshopForm, DailyLaborLogForm, EmployeeForm,
+    EmployeeSalaryPaymentForm, EmployeeDeductionForm,
+)
 from .services import LaborService, EmployeeService
 
 
@@ -209,10 +212,11 @@ def employee_edit(request, pk):
 @login_required
 def employee_detail(request, pk):
     """
-    بطاقة الموظف وسجل رواتبه الشهرية (منفصل تماماً عن الورش).
+    بطاقة الموظف وسجل رواتبه الشهرية وخصوماته (منفصل تماماً عن الورش).
     """
     employee = get_object_or_404(Employee, pk=pk)
     payments = employee.salary_payments.select_related('treasury_account', 'created_by').order_by('-year', '-month')
+    deductions = employee.deductions.select_related('created_by').order_by('-year', '-month', '-created_at')
 
     now = timezone.now()
     form = EmployeeSalaryPaymentForm(initial={
@@ -222,19 +226,96 @@ def employee_detail(request, pk):
         'amount': employee.monthly_salary,
         'status': EmployeeSalaryPayment.Status.ACCRUED,
     })
+    deduction_form = EmployeeDeductionForm(initial={
+        'year': now.year,
+        'month': now.month,
+        'deduction_date': now.date(),
+    })
 
     paid_total = payments.filter(status=EmployeeSalaryPayment.Status.PAID).aggregate(t=Sum('amount'))['t'] or Decimal('0.000')
     accrued_total = payments.filter(status=EmployeeSalaryPayment.Status.ACCRUED).aggregate(t=Sum('amount'))['t'] or Decimal('0.000')
 
+    # خصومات الشهر الحالي وصافي الراتب المتوقع (الراتب − الخصومات)
+    current_month_deductions = employee.deductions_for(now.year, now.month)
+    current_net_salary = employee.net_salary_for(now.year, now.month)
+    deductions_total_all = deductions.aggregate(t=Sum('amount'))['t'] or Decimal('0.000')
+
     context = {
         'employee': employee,
         'payments': payments,
+        'deductions': deductions,
         'form': form,
+        'deduction_form': deduction_form,
+        'deduction_types': EmployeeDeduction.Type.choices,
         'paid_total': paid_total,
         'accrued_total': accrued_total,
         'payments_count': payments.count(),
+        'current_month_deductions': current_month_deductions,
+        'current_net_salary': current_net_salary,
+        'deductions_total_all': deductions_total_all,
+        'deductions_count': deductions.count(),
+        'current_year': now.year,
+        'current_month': now.month,
     }
     return render(request, 'labor/employee_detail.html', context)
+
+
+@login_required
+@accountant_required
+def employee_deduction_add(request):
+    """
+    تسجيل خصم على راتب موظف (غياب/سلفة/تأخر...) — محاسب أو مدير.
+    """
+    if request.method == 'POST':
+        employee_pk = request.POST.get('employee')
+        form = EmployeeDeductionForm(request.POST)
+        if form.is_valid():
+            employee = get_object_or_404(Employee, pk=employee_pk)
+            try:
+                deduction = EmployeeService.record_deduction(
+                    employee=employee,
+                    year=form.cleaned_data['year'],
+                    month=form.cleaned_data['month'],
+                    amount=form.cleaned_data['amount'],
+                    deduction_type=form.cleaned_data['deduction_type'],
+                    deduction_date=form.cleaned_data.get('deduction_date'),
+                    reason=form.cleaned_data.get('reason') or '',
+                    user=request.user,
+                )
+                messages.success(
+                    request,
+                    f'تم تسجيل خصم {deduction.get_deduction_type_display()} على {employee.name} '
+                    f'لشهر {deduction.period_label}: {deduction.amount} دينار.'
+                )
+                return redirect('employee_detail', pk=employee.pk)
+            except Exception as e:  # noqa: BLE001
+                messages.error(request, f'تعذّر تسجيل الخصم: {e}')
+        else:
+            for field, errs in form.errors.items():
+                for err in errs:
+                    messages.error(request, err)
+    return redirect('employee_list')
+
+
+@login_required
+@manager_required
+def employee_deduction_delete(request, pk):
+    """
+    حذف خصم مسجّل بخطأ (بصلاحية مدير).
+    """
+    deduction = get_object_or_404(EmployeeDeduction, pk=pk)
+    employee_pk = deduction.employee.pk
+    if request.method == 'POST':
+        reason = request.POST.get('reason', '').strip()
+        try:
+            snap = EmployeeService.delete_deduction(deduction, reason=reason, user=request.user)
+            messages.success(
+                request,
+                f'تم حذف خصم {snap["type"]} عن {snap["employee"]} لشهر {snap["period"]} ({snap["amount"]} دينار).'
+            )
+        except Exception as e:  # noqa: BLE001
+            messages.error(request, f'تعذّر حذف الخصم: {e}')
+    return redirect('employee_detail', pk=employee_pk)
 
 
 @login_required
@@ -261,7 +342,8 @@ def employee_salary_pay(request):
                 messages.success(
                     request,
                     f'تم تسجيل راتب {payment.employee.name} لشهر {payment.period_label}: '
-                    f'{payment.amount} دينار ({payment.get_status_display()}).'
+                    f'الأساسي {payment.gross_amount} − الخصومات {payment.deductions_total} = '
+                    f'الصافي {payment.amount} دينار ({payment.get_status_display()}).'
                 )
                 return redirect('employee_detail', pk=payment.employee.pk)
             except Exception as e:  # noqa: BLE001

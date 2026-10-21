@@ -14,6 +14,8 @@ urlpatterns = [
     path('employees/salary-report/', views.salary_report, name='salary_report'),
     path('employees/salary-pay/', views.employee_salary_pay, name='employee_salary_pay'),
     path('employees/salary/<int:pk>/delete/', views.employee_salary_delete, name='employee_salary_delete'),
+    path('employees/deduction/add/', views.employee_deduction_add, name='employee_deduction_add'),
+    path('employees/deduction/<int:pk>/delete/', views.employee_deduction_delete, name='employee_deduction_delete'),
     path('employees/<int:pk>/', views.employee_detail, name='employee_detail'),
     path('employees/<int:pk>/edit/', views.employee_edit, name='employee_edit'),
 ]

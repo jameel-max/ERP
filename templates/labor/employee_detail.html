@@ -2,6 +2,12 @@
 
 {% block title %}بطاقة الموظف: {{ employee.name }} | {{ company_name_en }}{% endblock %}
 
+{% block extra_css %}
+<style>
+    .rf-num { direction: ltr; unicode-bidi: embed; display: inline-block; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container-fluid px-4 mt-4 mb-5">
     <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
@@ -42,7 +48,7 @@
     {% endif %}
 
     <div class="row g-3 mb-4">
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="card bg-white border-start border-4 border-primary h-100 shadow-sm">
                 <div class="card-body">
                     <div class="text-muted small">الراتب الشهري</div>
@@ -51,15 +57,26 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
+            <div class="card bg-white border-start border-4 border-danger h-100 shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">خصومات الشهر الحالي</div>
+                    <div class="fs-4 fw-bold text-danger">{{ current_month_deductions }} د.أ</div>
+                    <div class="small text-muted">
+                        صافي الشهر المتوقع: <strong>{{ current_net_salary }} د.أ</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
             <div class="card bg-white border-start border-4 border-success h-100 shadow-sm">
                 <div class="card-body">
-                    <div class="text-muted small">إجمالي المصروف فعلاً</div>
+                    <div class="text-muted small">إجمالي المصروف فعلاً (صافي)</div>
                     <div class="fs-4 fw-bold text-success">{{ paid_total }} د.أ</div>
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="card bg-white border-start border-4 border-warning h-100 shadow-sm">
                 <div class="card-body">
                     <div class="text-muted small">إجمالي المستحق (غير مدفوع)</div>
@@ -91,8 +108,28 @@
                                 {{ form.month }}
                             </div>
                             <div class="col-12">
-                                <label class="form-label fw-bold">مبلغ الراتب (دينار) *</label>
+                                <label class="form-label fw-bold">الراتب الأساسي قبل الخصم (دينار) *</label>
                                 {{ form.amount }}
+                            </div>
+                            <div class="col-12">
+                                <div class="alert alert-light border small mb-0">
+                                    <div class="d-flex justify-content-between">
+                                        <span>الراتب الأساسي:</span>
+                                        <strong id="rfGrossPreview">{{ current_month_deductions|add:current_net_salary }}</strong>
+                                    </div>
+                                    <div class="d-flex justify-content-between text-danger">
+                                        <span>خصومات الشهر الحالي:</span>
+                                        <strong id="rfDedPreview">- {{ current_month_deductions }}</strong>
+                                    </div>
+                                    <hr class="my-1">
+                                    <div class="d-flex justify-content-between text-success fs-6">
+                                        <span class="fw-bold">الصافي المتوقع للصرف:</span>
+                                        <strong id="rfNetPreview">{{ current_net_salary }} د.أ</strong>
+                                    </div>
+                                    <div class="text-muted mt-1">
+                                        يُصرف الصافي فقط من الخزينة. تُحدَّث هذه القيم تلقائياً حسب مبلغ الراتب المُدخل.
+                                    </div>
+                                </div>
                             </div>
                             <div class="col-12">
                                 <label class="form-label fw-bold">حالة الصرف *</label>
@@ -138,7 +175,9 @@
                         <thead class="table-light">
                             <tr>
                                 <th>الشهر</th>
-                                <th class="text-center">المبلغ</th>
+                                <th class="text-center">الأساسي</th>
+                                <th class="text-center">الخصومات</th>
+                                <th class="text-center">الصافي</th>
                                 <th class="text-center">الحالة</th>
                                 <th>الخزينة</th>
                                 <th class="text-center">تاريخ الصرف</th>
@@ -150,7 +189,11 @@
                             {% for p in payments %}
                             <tr>
                                 <td class="fw-bold">{{ p.period_label }}</td>
-                                <td class="text-center fw-bold">{{ p.amount }} د.أ</td>
+                                <td class="text-center"><span class="rf-num">{{ p.gross_amount }}</span></td>
+                                <td class="text-center text-danger">
+                                    {% if p.deductions_total > 0 %}- <span class="rf-num">{{ p.deductions_total }}</span>{% else %}—{% endif %}
+                                </td>
+                                <td class="text-center fw-bold text-success"><span class="rf-num">{{ p.amount }}</span> د.أ</td>
                                 <td class="text-center">
                                     {% if p.status == 'PAID' %}
                                     <span class="badge bg-success">مدفوع فعلاً</span>
@@ -164,7 +207,7 @@
                                 {% if user.is_manager %}
                                 <td class="text-center">
                                     <form method="post" action="{% url 'employee_salary_delete' p.pk %}" class="d-inline"
-                                          onsubmit="return confirm('حذف قيد راتب {{ p.period_label }} بمبلغ {{ p.amount }} د.أ؟ إن كان مدفوعاً سيُعاد المبلغ للخزينة.');">
+                                          onsubmit="return confirm('حذف قيد راتب {{ p.period_label }} بصافي {{ p.amount }} د.أ؟ إن كان مدفوعاً سيُعاد المبلغ للخزينة.');">
                                         {% csrf_token %}
                                         <input type="hidden" name="reason" value="حذف قيد راتب مسجّل بخطأ">
                                         <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف قيد الراتب">
@@ -176,7 +219,7 @@
                             </tr>
                             {% empty %}
                             <tr>
-                                <td colspan="7" class="text-center py-5 text-muted">
+                                <td colspan="9" class="text-center py-5 text-muted">
                                     <i class="bi bi-cash-stack fs-3 d-block mb-2 text-secondary"></i>
                                     لا توجد رواتب مسجّلة لهذا الموظف بعد.
                                 </td>
@@ -193,5 +236,137 @@
             </div>
         </div>
     </div>
+
+    <!-- الخصومات (غياب/سلفة/تأخير...) -->
+    <div class="row g-4 mt-1">
+        {% if user.is_accountant or user.is_manager or user.is_superuser %}
+        <div class="col-lg-4">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-royal py-3">
+                    <h6 class="mb-0 fw-bold"><i class="bi bi-dash-circle me-1"></i> تسجيل خصم على الراتب</h6>
+                </div>
+                <div class="card-body bg-white">
+                    <form method="post" action="{% url 'employee_deduction_add' %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="employee" value="{{ employee.pk }}">
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label fw-bold">نوع الخصم *</label>
+                                {{ deduction_form.deduction_type }}
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label fw-bold">السنة *</label>
+                                {{ deduction_form.year }}
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label fw-bold">الشهر *</label>
+                                {{ deduction_form.month }}
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label fw-bold">المبلغ (دينار) *</label>
+                                {{ deduction_form.amount }}
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label fw-bold">تاريخ الخصم</label>
+                                {{ deduction_form.deduction_date }}
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">السبب / البيان</label>
+                                {{ deduction_form.reason }}
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-royal w-100 mt-3">
+                            <i class="bi bi-plus-circle me-1"></i> تسجيل الخصم
+                        </button>
+                    </form>
+                    <div class="small text-muted mt-2">
+                        يُجمَّع الخصم تلقائياً مع راتب الشهر نفسه، ويُصرف الصافي فقط من الخزينة.
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="{% if user.is_accountant or user.is_manager or user.is_superuser %}col-lg-8{% else %}col-12{% endif %}">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0 fw-bold text-dark">
+                        <i class="bi bi-dash-circle-dotted me-1"></i> سجل الخصومات
+                        <span class="badge bg-secondary ms-2">{{ deductions_count }}</span>
+                    </h6>
+                    <span class="badge bg-danger">الإجمالي: {{ deductions_total_all }} د.أ</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>الشهر</th>
+                                <th>النوع</th>
+                                <th class="text-center">المبلغ</th>
+                                <th>السبب</th>
+                                <th class="text-center">تاريخ الخصم</th>
+                                {% if user.is_manager %}<th class="text-center">إجراءات</th>{% endif %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for d in deductions %}
+                            <tr>
+                                <td class="fw-bold">{{ d.period_label }}</td>
+                                <td><span class="badge bg-light text-dark border">{{ d.get_deduction_type_display }}</span></td>
+                                <td class="text-center fw-bold text-danger">- <span class="rf-num">{{ d.amount }}</span> د.أ</td>
+                                <td class="small text-muted">{{ d.reason|default:"—" }}</td>
+                                <td class="text-center">{{ d.deduction_date|default:"—" }}</td>
+                                {% if user.is_manager %}
+                                <td class="text-center">
+                                    <form method="post" action="{% url 'employee_deduction_delete' d.pk %}" class="d-inline"
+                                          onsubmit="return confirm('حذف خصم {{ d.get_deduction_type_display }} لشهر {{ d.period_label }} بمبلغ {{ d.amount }} د.أ؟');">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="reason" value="حذف خصم مسجّل بخطأ">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="حذف الخصم">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                                {% endif %}
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="6" class="text-center py-5 text-muted">
+                                    <i class="bi bi-dash-circle fs-3 d-block mb-2 text-secondary"></i>
+                                    لا توجد خصومات مسجّلة لهذا الموظف بعد.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // معاينة الصافي مباشرةً أثناء إدخال مبلغ الراتب الأساسي:
+    // الصافي = الراتب المُدخل − خصومات الشهر الحالي (لا يقل عن صفر).
+    (function () {
+        var amountInput = document.querySelector('#id_amount');
+        if (!amountInput) { return; }
+        var deductions = parseFloat('{{ current_month_deductions|default:0 }}') || 0;
+        var grossEl = document.getElementById('rfGrossPreview');
+        var dedEl = document.getElementById('rfDedPreview');
+        var netEl = document.getElementById('rfNetPreview');
+
+        function refresh() {
+            var gross = parseFloat(amountInput.value) || 0;
+            var net = Math.max(0, gross - deductions);
+            if (grossEl) { grossEl.textContent = gross.toFixed(3); }
+            if (dedEl) { dedEl.textContent = '- ' + deductions.toFixed(3); }
+            if (netEl) { netEl.textContent = net.toFixed(3) + ' د.أ'; }
+        }
+        amountInput.addEventListener('input', refresh);
+        refresh();
+    })();
+</script>
 {% endblock %}

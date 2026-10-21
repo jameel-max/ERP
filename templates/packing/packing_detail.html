@@ -119,7 +119,7 @@
             <h5 class="mb-0 fw-bold"><i class="bi bi-box-seam me-2"></i> إدخال نواتج التوضيب بالمقاسات والهالك</h5>
         </div>
         <div class="card-body p-4 bg-white">
-            <form method="post" action="{% url 'packing_finalize' session.pk %}" id="packingForm">
+            <form method="post" action="{% url 'packing_finalize' session.pk %}" id="packingForm" data-ajax="1">
                 {% csrf_token %}
 
                 <h6 class="fw-bold text-success border-bottom pb-2 mb-3">1. نواتج المقاسات الموضبة:</h6>

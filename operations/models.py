@@ -200,11 +200,23 @@ class ColdStore(models.Model):
         return self.pallets.filter(status='IN_COOLING').count()
 
     @property
+    def packed_occupied_pallets(self):
+        """عدد الطبالي الموضبة المبرّدة داخل هذا البراد (خدمة التبريد اليومي)."""
+        if hasattr(self, '_packed_occupied_pallets_cached'):
+            return self._packed_occupied_pallets_cached
+        return self.packed_pallets.filter(status='IN_COOLING').count()
+
+    @property
+    def total_occupied_pallets(self):
+        """
+        إجمالي إشغال البراد بالطبالي = الطبالي الخام في التبريد + الطبالي الموضبة المبرّدة.
+        السعة (capacity_pallets) تشمل النوعين معاً.
+        """
+        return self.occupied_pallets + self.packed_occupied_pallets
+
+    @property
     def occupancy_rate(self):
-        if hasattr(self, '_occupied_pallets_cached'):
-            occupied = self._occupied_pallets_cached
-        else:
-            occupied = self.occupied_pallets
+        occupied = self.total_occupied_pallets
         if self.capacity_pallets and self.capacity_pallets > 0:
             return round((occupied / self.capacity_pallets) * 100, 1)
         return None
@@ -247,6 +259,18 @@ class Shelf(models.Model):
         return self.pallets.filter(status='IN_COOLING').count()
 
     @property
+    def packed_occupied_pallets(self):
+        """عدد الطبالي الموضبة المبرّدة على هذا السيخ."""
+        if hasattr(self, '_packed_occupied_pallets_cached'):
+            return self._packed_occupied_pallets_cached
+        return self.packed_pallets.filter(status='IN_COOLING').count()
+
+    @property
+    def total_occupied_pallets(self):
+        """إجمالي إشغال السيخ = الخام في التبريد + الموضب المبرّد (السعة تشمل النوعين)."""
+        return self.occupied_pallets + self.packed_occupied_pallets
+
+    @property
     def effective_capacity(self):
         """
         السعة الفعلية للسيخ بالطبالي:
@@ -269,24 +293,26 @@ class Shelf(models.Model):
 
     @property
     def free_pallets(self):
-        """عدد الطبالي المتاحة في السيخ (None = غير محدود)."""
+        """عدد الطبالي المتاحة في السيخ (None = غير محدود). يشمل احتساب الموضب المبرّد."""
         capacity = self.effective_capacity
         if not capacity or capacity <= 0:
             return None
-        return max(0, capacity - self.occupied_pallets)
+        return max(0, capacity - self.total_occupied_pallets)
 
     @property
     def is_full(self):
         """هل امتلأ السيخ (مشغول ≥ السعة)؟ الأسياخ غير المحدودة لا تمتلئ."""
         capacity = self.effective_capacity
-        return bool(capacity) and self.occupied_pallets >= capacity
+        return bool(capacity) and self.total_occupied_pallets >= capacity
 
 
 def annotate_cold_store_occupancy(stores):
     """
-    يملأ عدد الطبالي المشغولة لكل براد باستعلام واحد بدل استعلام لكل براد.
+    يملأ عدد الطبالي المشغولة لكل براد (خام + موضب مبرّد) باستعلامات مجمّعة بدل استعلام لكل براد.
     (يُستخدم في الصفحات التي تعرض كل البرادات معاً)
     """
+    from packing.models import PackedPallet
+
     stores = list(stores)
     counts = dict(
         Pallet.objects.filter(status=Pallet.Status.IN_COOLING)
@@ -294,19 +320,34 @@ def annotate_cold_store_occupancy(stores):
         .annotate(c=Count('id'))
         .values_list('cold_store_id', 'c')
     )
+    packed_counts = dict(
+        PackedPallet.objects.filter(status=PackedPallet.Status.IN_COOLING)
+        .values_list('cold_store_id')
+        .annotate(c=Count('id'))
+        .values_list('cold_store_id', 'c')
+    )
     for store in stores:
         store._occupied_pallets_cached = counts.get(store.id, 0)
+        store._packed_occupied_pallets_cached = packed_counts.get(store.id, 0)
     return stores
 
 
 def annotate_shelf_occupancy(shelves):
     """
-    يملأ عدد الطبالي المشغولة لكل سيخ باستعلام واحد بدل استعلام لكل سيخ،
+    يملأ عدد الطبالي المشغولة لكل سيخ (خام + موضب مبرّد) باستعلامات مجمّعة بدل استعلام لكل سيخ،
     ويحسب السعة الفعلية (المشتقة من سعة البراد عند عدم تحديد سعة للسيخ) بنفس الاستعلامات المجمّعة.
     """
+    from packing.models import PackedPallet
+
     shelves = list(shelves)
     counts = dict(
         Pallet.objects.filter(status=Pallet.Status.IN_COOLING)
+        .values_list('shelf_id')
+        .annotate(c=Count('id'))
+        .values_list('shelf_id', 'c')
+    )
+    packed_counts = dict(
+        PackedPallet.objects.filter(status=PackedPallet.Status.IN_COOLING)
         .values_list('shelf_id')
         .annotate(c=Count('id'))
         .values_list('shelf_id', 'c')
@@ -319,6 +360,7 @@ def annotate_shelf_occupancy(shelves):
     )
     for shelf in shelves:
         shelf._occupied_pallets_cached = counts.get(shelf.id, 0)
+        shelf._packed_occupied_pallets_cached = packed_counts.get(shelf.id, 0)
         capacity = shelf.capacity_pallets
         if not capacity or capacity <= 0:
             store_capacity = store_capacities.get(shelf.cold_store_id)

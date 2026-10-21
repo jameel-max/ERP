@@ -2,6 +2,12 @@
 
 {% block title %}تقرير الرواتب الشهرية | {{ company_name_en }}{% endblock %}
 
+{% block extra_css %}
+<style>
+    .rf-num { direction: ltr; unicode-bidi: embed; display: inline-block; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container-fluid px-4 mt-4 mb-5">
     <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-2 border-bottom">
@@ -85,7 +91,9 @@
                     <tr>
                         <th>الموظف</th>
                         <th>الشهر</th>
-                        <th class="text-center">المبلغ</th>
+                        <th class="text-center">الأساسي</th>
+                        <th class="text-center">الخصومات</th>
+                        <th class="text-center">الصافي</th>
                         <th class="text-center">الحالة</th>
                         <th>الخزينة</th>
                         <th class="text-center">تاريخ الصرف</th>
@@ -98,7 +106,11 @@
                             <a href="{% url 'employee_detail' p.employee.pk %}" class="text-decoration-none">{{ p.employee.name }}</a>
                         </td>
                         <td>{{ p.period_label }}</td>
-                        <td class="text-center fw-bold">{{ p.amount }} د.أ</td>
+                        <td class="text-center"><span class="rf-num">{{ p.gross_amount }}</span></td>
+                        <td class="text-center text-danger">
+                            {% if p.deductions_total > 0 %}- <span class="rf-num">{{ p.deductions_total }}</span>{% else %}—{% endif %}
+                        </td>
+                        <td class="text-center fw-bold text-success"><span class="rf-num">{{ p.amount }}</span> د.أ</td>
                         <td class="text-center">
                             {% if p.status == 'PAID' %}
                             <span class="badge bg-success">مدفوع</span>
@@ -110,7 +122,7 @@
                         <td class="text-center">{{ p.payment_date|default:"—" }}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="6" class="text-center py-4 text-muted">لا توجد قيود رواتب في {{ selected_year }}.</td></tr>
+                    <tr><td colspan="8" class="text-center py-4 text-muted">لا توجد قيود رواتب في {{ selected_year }}.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

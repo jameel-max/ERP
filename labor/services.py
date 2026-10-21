@@ -123,7 +123,9 @@ class EmployeeService:
                               treasury_account=None, payment_date=None, notes='', user=None):
         """
         تسجيل صرف راتب شهر واحد لموظف.
-        - الراتب المدفوع فعلاً يخصم من الخزينة مرة واحدة فقط.
+        - `amount` هو **الراتب الأساسي (gross)** المُدخل. تُطرح منه خصومات الشهر تلقائياً
+          ليُصرف الصافي فقط من الخزينة.
+        - الراتب المدفوع فعلاً يخصم الصافي من الخزينة مرة واحدة فقط.
         - المستحق لا يمسّ الخزينة.
         - منع الازدواج: قيد واحد لكل موظف/سنة/شهر.
         """
@@ -131,8 +133,8 @@ class EmployeeService:
 
         if not (1 <= int(month) <= 12):
             raise ValidationError('الشهر يجب أن يكون بين 1 و 12.')
-        amount = Decimal(str(amount))
-        if amount <= 0:
+        gross = Decimal(str(amount))
+        if gross <= 0:
             raise ValidationError('مبلغ الراتب يجب أن يكون أكبر من صفر.')
 
         if EmployeeSalaryPayment.objects.filter(employee=employee, year=year, month=month).exists():
@@ -141,29 +143,107 @@ class EmployeeService:
                 'لا يمكن تسجيله مرتين لنفس الشهر.'
             )
 
+        # مجموع خصومات الشهر (غياب/سلفة/تأخير...) محسوب على أساس الراتب المُدخل.
+        # لا يتجاوز الخصم الراتب: لا يُسمح بصافي سالب، لكن يُسمح بصافٍ صفر
+        # (الشهر مُستوفى خصومات كاملة) فيُسجَّل القيد بلا حركة خزينة.
+        deductions_total = employee.deductions_for(year, month)
+        if deductions_total > gross:
+            deductions_total = gross
+        net_amount = (gross - deductions_total).quantize(Decimal('0.001'))
+
         if status == EmployeeSalaryPayment.Status.PAID:
             if not treasury_account:
                 raise ValidationError('صرف الراتب المدفوع يتطلب تحديد الخزينة أو الحساب المدفوع منه.')
             payment_date = payment_date or timezone.now().date()
 
         payment = EmployeeSalaryPayment.objects.create(
-            employee=employee, year=year, month=month, amount=amount,
+            employee=employee, year=year, month=month,
+            gross_amount=gross, deductions_total=deductions_total, amount=net_amount,
             status=status, payment_date=payment_date,
             treasury_account=treasury_account, notes=notes, created_by=user,
         )
 
         if status == EmployeeSalaryPayment.Status.PAID and treasury_account:
-            treasury_account.current_balance -= amount
+            treasury_account.current_balance -= net_amount
             treasury_account.save()
 
         AuditLog.log(
             user=user,
             action='RECORD_SALARY_PAYMENT',
             instance=payment,
-            reason=f'صرف راتب {employee.name} لشهر {int(month):02d}/{year} بقيمة {amount} دينار ({status})',
-            details={'amount': str(amount), 'status': status, 'treasury': str(treasury_account)},
+            reason=(
+                f'صرف راتب {employee.name} لشهر {int(month):02d}/{year}: '
+                f'الأساسي {gross} − الخصومات {deductions_total} = الصافي {net_amount} دينار ({status})'
+            ),
+            details={
+                'gross': str(gross), 'deductions': str(deductions_total),
+                'net': str(net_amount), 'status': status, 'treasury': str(treasury_account),
+            },
         )
         return payment
+
+    @classmethod
+    @transaction.atomic
+    def record_deduction(cls, employee, year, month, amount, deduction_type='ABSENCE',
+                         deduction_date=None, reason='', user=None):
+        """
+        تسجيل خصم على راتب موظف لشهر محدد.
+        الخصم سجل مستقل لا يعدّل الراتب الأساسي، ويُجمَّع عند الصرف لحساب الصافي.
+        """
+        from .models import EmployeeDeduction
+
+        if not (1 <= int(month) <= 12):
+            raise ValidationError('الشهر يجب أن يكون بين 1 و 12.')
+        amount = Decimal(str(amount))
+        if amount <= 0:
+            raise ValidationError('مبلغ الخصم يجب أن يكون أكبر من صفر.')
+        if deduction_type not in EmployeeDeduction.Type.values:
+            raise ValidationError('نوع الخصم غير معروف.')
+
+        deduction = EmployeeDeduction.objects.create(
+            employee=employee, deduction_type=deduction_type,
+            year=year, month=month, amount=amount,
+            deduction_date=deduction_date or timezone.now().date(),
+            reason=reason, created_by=user,
+        )
+        AuditLog.log(
+            user=user,
+            action='RECORD_EMPLOYEE_DEDUCTION',
+            instance=deduction,
+            reason=(
+                f'تسجيل خصم {deduction.get_deduction_type_display()} على {employee.name} '
+                f'لشهر {int(month):02d}/{year} بقيمة {amount} دينار'
+            ),
+            details={
+                'employee': employee.name, 'type': deduction_type,
+                'amount': str(amount), 'period': deduction.period_label,
+            },
+        )
+        return deduction
+
+    @classmethod
+    @transaction.atomic
+    def delete_deduction(cls, deduction, reason='', user=None):
+        """حذف خصم مسجّل بخطأ — مع قيد تدقيق. لا يمسّ الخزينة (الخصم لم يُصرف بعد)."""
+        from .models import EmployeeDeduction
+
+        snapshot = {
+            'employee': deduction.employee.name,
+            'type': deduction.get_deduction_type_display(),
+            'amount': str(deduction.amount),
+            'period': deduction.period_label,
+        }
+        AuditLog.log(
+            user=user,
+            action='DELETE_EMPLOYEE_DEDUCTION',
+            instance=deduction,
+            reason=reason or (
+                f'حذف خصم {snapshot["type"]} عن {snapshot["employee"]} لشهر {snapshot["period"]}'
+            ),
+            details=snapshot,
+        )
+        deduction.delete()
+        return snapshot
 
     @classmethod
     @transaction.atomic

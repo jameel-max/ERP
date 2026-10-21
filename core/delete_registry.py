@@ -47,6 +47,7 @@ DELETE_ALLOWED = {
         'dailylaborlog',
         'employee',
         'employeesalarypayment',
+        'employeededuction',
     },
     'finance': {
         'treasuryaccount',

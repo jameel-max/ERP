@@ -71,7 +71,7 @@
                         <i class="bi bi-exclamation-triangle-fill me-1"></i>
                         لا يمكن التراجع عن هذه العملية. سيتم تسجيل الحذف في سجل التدقيق مع اسمك.
                     </div>
-                    <form method="post" action="{% url 'generic_delete' app_label model_name obj.pk %}">
+                    <form method="post" action="{% url 'generic_delete' app_label model_name obj.pk %}" data-ajax="1">
                         {% csrf_token %}
                         <input type="hidden" name="next" value="{{ next_url }}">
                         <div class="d-flex justify-content-between mt-3">

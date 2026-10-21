@@ -1,4 +1,5 @@
 from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.exceptions import ValidationError
@@ -7,6 +8,7 @@ from django.http import JsonResponse
 from decimal import Decimal
 import json
 
+from core.ajax import is_ajax, ajax_response
 from core.permissions import accountant_required, manager_required
 from core.models import AuditLog, SystemSetting
 from operations.models import BoxType, Pallet, Trader, ColdStore, Shelf, PackagingGroup
@@ -203,15 +205,26 @@ def packing_finalize(request, pk):
             )
 
             if session.requires_manager_approval:
-                messages.warning(request, f'تم تسجيل النواتج ولكن يوجد فرق وزن غير مفسر ({session.unexplained_diff_kg} كغ). الجلسة تتطلب اعتماد المدير.')
+                msg = f'تم تسجيل النواتج ولكن يوجد فرق وزن غير مفسر ({session.unexplained_diff_kg} كغ). الجلسة تتطلب اعتماد المدير.'
+                messages.warning(request, msg)
             else:
-                messages.success(request, f'تم إكمال التوضيب بنجاح! الرندمان: {session.randeman_pct}%، الموضب: {session.output_packed_kg} كغ.')
+                msg = f'تم إكمال التوضيب بنجاح! الرندمان: {session.randeman_pct}%، الموضب: {session.output_packed_kg} كغ.'
+                messages.success(request, msg)
 
+            redirect_url = reverse('packing_detail', args=[session.pk])
+            if is_ajax(request):
+                return ajax_response(ok=True, message=msg, redirect=redirect_url)
             return redirect('packing_detail', pk=session.pk)
         except ValidationError as e:
-            messages.error(request, ' '.join(e.messages) if e.messages else str(e))
+            msg = ' '.join(e.messages) if e.messages else str(e)
+            messages.error(request, msg)
+            if is_ajax(request):
+                return ajax_response(ok=False, message=msg)
         except Exception as e:
-            messages.error(request, f'خطأ أثناء الحفظ: {str(e)}')
+            msg = f'خطأ أثناء الحفظ: {str(e)}'
+            messages.error(request, msg)
+            if is_ajax(request):
+                return ajax_response(ok=False, message=msg)
 
     return redirect('packing_detail', pk=session.pk)
 
@@ -243,11 +256,20 @@ def packing_edit(request, pk):
                     user=request.user,
                 )
                 messages.success(request, 'تم تحديث بيانات عملية التوضيب بنجاح.')
+                if is_ajax(request):
+                    return ajax_response(ok=True, message='تم تحديث بيانات عملية التوضيب بنجاح.',
+                                         redirect=reverse('packing_detail', args=[session.pk]))
                 return redirect('packing_detail', pk=session.pk)
             except ValidationError as e:
-                messages.error(request, ' '.join(e.messages) if e.messages else str(e))
+                msg = ' '.join(e.messages) if e.messages else str(e)
+                messages.error(request, msg)
+                if is_ajax(request):
+                    return ajax_response(ok=False, message=msg)
             except Exception as e:  # noqa: BLE001
-                messages.error(request, f'خطأ أثناء التعديل: {str(e)}')
+                msg = f'خطأ أثناء التعديل: {str(e)}'
+                messages.error(request, msg)
+                if is_ajax(request):
+                    return ajax_response(ok=False, message=msg)
     else:
         form = StartPackingSessionForm(instance=session)
 

@@ -498,6 +498,32 @@ class Phase2ComprehensiveTests(TestCase):
         # الفارغ المستهلك حُرِّر
         self.assertEqual(EmptyBoxService.consumed_in_packing(self.farm_box_blue.pk), 0)
 
+    def test_finalize_ajax_returns_json_success(self):
+        """
+        طبقة AJAX: نفس الحفظ الذرّي، لكن الاستجابة JSON مختصرة (نجاح + إعادة توجيه)
+        بدل صفحة كاملة — الواجهة لا تتجمّد ولا تدّعي نجاحاً كاذباً.
+        """
+        session = PackingService.start_packing_session(
+            trader=self.trader1, crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet1], user=self.accountant,
+        )
+        client = Client()
+        client.force_login(self.accountant)
+        resp = client.post(reverse('packing_finalize', args=[session.pk]), {
+            'size_name[]': ['P1 Standard'],
+            'box_type[]': [str(self.box_blue.id)],
+            'box_count[]': ['20'],
+            'net_weight_kg[]': ['100.000'],
+            'waste_type[]': ['تالف'],
+            'waste_weight[]': ['0.000'],
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertTrue(payload['ok'])
+        self.assertIn('redirect', payload)
+        self.assertEqual(session.packed_pallets.count(), 1)
+
     def test_edit_requires_login_and_rejects_completed_session(self):
         """التعديل يتطلب تسجيل الدخول، ويُرفض على جلسة مكتملة."""
         session = PackingService.start_packing_session(

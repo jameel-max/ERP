@@ -3,8 +3,87 @@
 
 {% block title %}الفاتورة {{ invoice.invoice_number }} | {{ company_name_en }}{% endblock %}
 
+{% block extra_css %}
+<style>
+    /* أرقام وأكواد الفاتورة تبقى بترتيبها الأصلي (LTR) حتى لا تنعكس عند الطباعة */
+    .rf-num {
+        direction: ltr;
+        unicode-bidi: embed;
+        display: inline-block;
+    }
+    .rf-amount {
+        direction: ltr;
+        unicode-bidi: embed;
+        display: inline-block;
+        font-variant-numeric: tabular-nums;
+    }
+
+    /* تصميم مخصّص للطباعة من المتصفح */
+    @media print {
+        @page {
+            size: A4;
+            margin: 12mm;
+        }
+        body {
+            background: #fff !important;
+            font-size: 12px;
+        }
+        .rf-content {
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        .no-print,
+        .rf-sidebar,
+        .rf-sidebar-backdrop,
+        footer,
+        .rf-flash-host,
+        #rfFlashHost {
+            display: none !important;
+        }
+        .card {
+            box-shadow: none !important;
+            border: 1px solid #dee2e6 !important;
+            break-inside: avoid;
+        }
+        .table-responsive {
+            overflow: visible !important;
+        }
+        table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+        }
+        th, td {
+            border: 1px solid #adb5bd !important;
+            padding: 4px 6px !important;
+        }
+        thead {
+            display: table-header-group;
+        }
+        tr {
+            break-inside: avoid;
+        }
+        .rf-print-header {
+            display: block !important;
+            margin-bottom: 8px;
+        }
+    }
+    .rf-print-header { display: none; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container-fluid px-4 mt-4 mb-5">
+
+    <!-- ترويسة خاصة بالطباعة (اسم المشغل ورقم الفاتورة) -->
+    <div class="rf-print-header">
+        <div style="text-align:center; border-bottom:2px solid #1B4D3E; padding-bottom:6px; margin-bottom:10px;">
+            <div style="font-size:20px; font-weight:700; color:#1B4D3E;">{{ company_name_ar|default:"مشغل رويال فروت" }}</div>
+            <div style="font-size:13px; color:#555;">{{ company_name_en }} — Royal Fruit Packhouse</div>
+            <div style="font-size:13px; margin-top:4px;">
+                {{ invoice.invoice_number }} — {{ invoice.created_at|date:"Y-m-d" }}
+            </div>
+        </div>
+    </div>
 
     <!-- رأس الفاتورة -->
     <div class="card shadow-sm border-0 mb-4">
@@ -12,7 +91,7 @@
             <div class="d-flex flex-wrap justify-content-between align-items-center">
                 <div>
                     <div class="d-flex align-items-center gap-2">
-                        <h2 class="fw-bold mb-0 text-dark">{{ invoice.invoice_number }}</h2>
+                        <h2 class="fw-bold mb-0 text-dark"><span class="rf-num">{{ invoice.invoice_number }}</span></h2>
                         {% if invoice.status == 'APPROVED' %}
                         <span class="badge bg-success fs-6"><i class="bi bi-patch-check-fill me-1"></i> معتمدة</span>
                         {% elif invoice.status == 'PAID' %}
@@ -24,8 +103,8 @@
                     <div class="text-muted small mt-1">
                         التاجر: <a href="{% url 'trader_detail' invoice.trader.pk %}" class="fw-bold text-success text-decoration-none">{{ invoice.trader.name }}</a> &bull;
                         نوع البضاعة: <strong>{{ invoice.crop.name }}</strong> &bull;
-                        السنة المالية: <strong>{{ invoice.year }}</strong> &bull;
-                        تاريخ الإنشاء: {{ invoice.created_at|date:"Y-m-d H:i" }}
+                        السنة المالية: <strong><span class="rf-num">{{ invoice.year }}</span></strong> &bull;
+                        تاريخ الإنشاء: <span class="rf-num">{{ invoice.created_at|date:"Y-m-d H:i" }}</span>
                     </div>
                 </div>
                 <div class="d-flex flex-wrap gap-2 mt-3 mt-md-0">
@@ -42,6 +121,9 @@
                     <a href="{% url 'invoice_pdf' invoice.pk %}" class="btn btn-royal" target="_blank">
                         <i class="bi bi-file-earmark-pdf-fill me-1"></i> تحميل / طباعة PDF
                     </a>
+                    <button type="button" class="btn btn-outline-royal" onclick="window.print();">
+                        <i class="bi bi-printer-fill me-1"></i> طباعة الفاتورة
+                    </button>
                     {% include "core/_delete_button.html" with app_label="invoicing" model_name="invoice" object_id=invoice.pk btn_class="btn-outline-danger" title="حذف الفاتورة بشكل منفرد" show_text=True %}
                 </div>
             </div>
@@ -62,70 +144,85 @@
                             <thead class="table-light small">
                                 <tr>
                                     <th>البيان</th>
+                                    <th>النوع</th>
                                     <th>الكمية / الوزن</th>
-                                    <th>سعر الوحدة</th>
-                                    <th>الإجمالي</th>
+                                    <th>سعر الوحدة (د.أ)</th>
+                                    <th>الإجمالي (د.أ)</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for item in invoice.items.all %}
                                 <tr>
-                                    <td>
-                                        <div class="fw-bold">{{ item.description }}</div>
-                                        <small class="text-muted">{{ item.get_item_type_display }}</small>
-                                    </td>
-                                    <td>{{ item.quantity }}</td>
-                                    <td>{{ item.unit_price }} د.أ</td>
-                                    <td class="fw-bold text-dark">{{ item.total_price }} د.أ</td>
+                                    <td class="fw-bold">{{ item.description }}</td>
+                                    <td><small class="text-muted">{{ item.get_item_type_display }}</small></td>
+                                    <td><span class="rf-num">{{ item.quantity }}</span></td>
+                                    <td><span class="rf-amount">{{ item.unit_price }}</span></td>
+                                    <td class="fw-bold text-dark"><span class="rf-amount">{{ item.total_price }}</span></td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
                         </table>
                     </div>
+                    {% else %}
+                    <div class="alert alert-light border text-muted small mb-4">
+                        لا توجد بنود على هذه الفاتورة بعد. اضغط «مزامنة مع التوضيب والصناديق» لتوليد البنود.
+                    </div>
                     {% endif %}
 
+                    <!-- جدول المجاميع (منفصل عن بنود الفاتورة) -->
+                    <h6 class="fw-bold text-muted mb-2"><i class="bi bi-calculator me-1"></i> المجاميع</h6>
                     <table class="table table-bordered align-middle">
                         <tbody>
                             <tr>
-                                <th class="bg-light" style="width: 45%;">طريقة التوضيب المتفق عليها</th>
+                                <th class="bg-light" style="width: 55%;">طريقة التوضيب المتفق عليها</th>
                                 <td class="fw-bold">{{ invoice.get_packing_method_display }}</td>
                             </tr>
                             <tr>
                                 <th class="bg-light">سعر الكيلو الموضب المجمد</th>
-                                <td class="fw-bold text-success">{{ invoice.packing_rate_snapshot }} دينار / كغ</td>
+                                <td class="fw-bold text-success"><span class="rf-amount">{{ invoice.packing_rate_snapshot }}</span> دينار / كغ</td>
                             </tr>
                             <tr>
                                 <th class="bg-light">إجمالي الوزن المستلم من السيارات المرتبطة</th>
-                                <td>{{ total_received_net }} كغ</td>
+                                <td><span class="rf-amount">{{ total_received_net }}</span> كغ</td>
                             </tr>
                             <tr>
                                 <th class="bg-light">إجمالي الوزن الموضب فعلاً</th>
-                                <td class="fw-bold">{{ invoice.total_packed_kg }} كغ</td>
+                                <td class="fw-bold"><span class="rf-amount">{{ invoice.total_packed_kg }}</span> كغ</td>
                             </tr>
                             <tr>
                                 <th class="bg-light">أجور التوضيب (الموضب فعلاً × السعر المجمد)</th>
-                                <td class="fw-bold">{{ invoice.packing_subtotal }} دينار</td>
+                                <td class="fw-bold"><span class="rf-amount">{{ invoice.packing_subtotal }}</span> دينار</td>
                             </tr>
                             <tr>
-                                <th class="bg-light">خصومات عجز الصناديق الفارغة</th>
-                                <td class="text-danger">{{ invoice.box_discount_subtotal }} دينار</td>
+                                <th class="bg-light">بدل عجز صناديق فارغة (مبلغ يُطالَب به التاجر)</th>
+                                <td class="text-danger"><span class="rf-amount">+ {{ invoice.box_discount_subtotal }}</span> دينار</td>
                             </tr>
                             <tr>
                                 <th class="bg-light">أجرة خدمة التبريد اليومية للطبالي الموضبة</th>
-                                <td class="fw-bold">{{ invoice.cooling_subtotal }} دينار</td>
+                                <td class="fw-bold"><span class="rf-amount">+ {{ invoice.cooling_subtotal }}</span> دينار</td>
                             </tr>
                             <tr>
-                                <th class="bg-light">خدمات إضافية</th>
-                                <td>{{ invoice.other_services }} دينار</td>
+                                <th class="bg-light">خدمات إضافية (أصناف تغليف وغيرها)</th>
+                                <td><span class="rf-amount">+ {{ invoice.other_services }}</span> دينار</td>
                             </tr>
                             <tr>
                                 <th class="bg-light">خصومات عامة</th>
-                                <td class="text-danger">{{ invoice.general_discount }} دينار</td>
+                                <td class="text-danger"><span class="rf-amount">- {{ invoice.general_discount }}</span> دينار</td>
                             </tr>
                             <tr class="table-success fs-5">
                                 <th class="fw-bold">الإجمالي النهائي المستحق</th>
-                                <td class="fw-bold text-success">{{ invoice.grand_total }} دينار</td>
+                                <td class="fw-bold text-success"><span class="rf-amount">{{ invoice.grand_total }}</span> دينار</td>
                             </tr>
+                            {% if invoice.paid_amount > 0 %}
+                            <tr>
+                                <th class="bg-light">المبلغ المسدد</th>
+                                <td class="text-danger"><span class="rf-amount">- {{ invoice.paid_amount }}</span> دينار</td>
+                            </tr>
+                            <tr>
+                                <th class="bg-light">المبلغ المتبقي</th>
+                                <td class="fw-bold"><span class="rf-amount">{{ invoice.remaining_balance }}</span> دينار</td>
+                            </tr>
+                            {% endif %}
                         </tbody>
                     </table>
 

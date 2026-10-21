@@ -361,6 +361,9 @@
 
         <!-- المحتوى -->
         <div class="rf-content">
+            <!-- حاوية رسائل ديناميكية للعمليات غير المتزامنة (AJAX) -->
+            <div id="rfFlashHost" class="container-fluid px-4 mt-3 no-print" aria-live="polite"></div>
+
             <!-- رسائل التنبيهات (Django Messages) -->
             <div class="container-fluid px-4 mt-3 no-print">
                 {% if messages %}
@@ -428,6 +431,7 @@
             document.addEventListener('submit', function (e) {
                 var form = e.target;
                 if (!form || form.tagName !== 'FORM' || form.hasAttribute('data-allow-double-submit')) return;
+                if (form.getAttribute('data-ajax') === '1') return;
                 if (form.dataset.rfSubmitting === '1') {
                     // محاولة إرسال ثانية أثناء معالجة الأولى -> امنعها
                     e.preventDefault();
@@ -439,6 +443,181 @@
                     var buttons = form.querySelectorAll('button[type="submit"], input[type="submit"]');
                     buttons.forEach(function (b) { b.disabled = true; b.classList.add('disabled'); });
                 }, 0);
+            }, true);
+        })();
+
+        // ================================================================
+        // طبقة العمليات غير المتزامنة (AJAX) — عرض فوري وحفظ خلفي آمن:
+        // - نفس نقطة النهاية على الخادم ونفس الحفظ الذرّي والأقفال (لا تغيير في المنطق المالي).
+        // - الواجهة لا تتجمّد: يظهر "جارٍ الحفظ..." ثم نتيجة نجاح/خطأ واضحة.
+        // - عند الفشل: رسالة واضحة بالعربية ولا ادّعاء نجاح كاذب أبداً.
+        // الاستخدام: أضف data-ajax="1" إلى <form> أو data-ajax-click إلى زر/رابط.
+        // ================================================================
+        window.rfFlash = function (message, level) {
+            var host = document.getElementById('rfFlashHost');
+            if (!host) { return; }
+            var icons = {
+                success: 'bi-check-circle-fill',
+                error: 'bi-x-circle-fill',
+                danger: 'bi-x-circle-fill',
+                warning: 'bi-exclamation-triangle-fill',
+                info: 'bi-info-circle-fill'
+            };
+            var lvl = level || 'info';
+            var div = document.createElement('div');
+            div.className = 'alert alert-' + lvl + ' alert-dismissible fade show shadow-sm';
+            div.setAttribute('role', 'alert');
+            div.innerHTML = '<i class="bi ' + (icons[lvl] || icons.info) + ' me-2 fs-5"></i><strong></strong>' +
+                '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+            div.querySelector('strong').textContent = message;
+            host.appendChild(div);
+            window.setTimeout(function () {
+                if (div && div.parentNode) {
+                    div.classList.remove('show');
+                    window.setTimeout(function () { if (div.parentNode) { div.parentNode.removeChild(div); } }, 300);
+                }
+            }, (lvl === 'error' || lvl === 'danger') ? 9000 : 5000);
+        };
+
+        (function () {
+            function getCookie(name) {
+                var v = null;
+                if (document.cookie && document.cookie !== '') {
+                    document.cookie.split(';').forEach(function (c) {
+                        var t = c.trim();
+                        if (t.substring(0, name.length + 1) === (name + '=')) {
+                            v = decodeURIComponent(t.substring(name.length + 1));
+                        }
+                    });
+                }
+                return v;
+            }
+
+            function setBusy(el, busy) {
+                if (!el) { return; }
+                var btns = el.querySelectorAll('button[type="submit"], input[type="submit"]');
+                btns.forEach(function (b) {
+                    if (busy) {
+                        if (!b.dataset.rfOriginalHtml) { b.dataset.rfOriginalHtml = b.innerHTML; }
+                        b.disabled = true;
+                        b.classList.add('disabled');
+                        b.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>جارٍ الحفظ...';
+                    } else {
+                        b.disabled = false;
+                        b.classList.remove('disabled');
+                        if (b.dataset.rfOriginalHtml) { b.innerHTML = b.dataset.rfOriginalHtml; }
+                    }
+                });
+            }
+
+            function handleForm(form) {
+                if (form.dataset.rfAjaxSending === '1') { return; }
+                var confirmMsg = form.getAttribute('data-ajax-confirm');
+                if (confirmMsg && !window.confirm(confirmMsg)) { return; }
+
+                form.dataset.rfAjaxSending = '1';
+                setBusy(form, true);
+
+                var action = form.getAttribute('action') || window.location.pathname;
+                var method = (form.getAttribute('method') || 'POST').toUpperCase();
+                var fd = new FormData(form);
+
+                fetch(action, {
+                    method: method,
+                    body: method === 'GET' ? undefined : fd,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    credentials: 'same-origin'
+                }).then(function (resp) {
+                    return resp.text().then(function (text) {
+                        return { ok: resp.ok, status: resp.status, text: text, url: resp.url, type: resp.headers.get('content-type') || '' };
+                    });
+                }).then(function (res) {
+                    form.dataset.rfAjaxSending = '0';
+                    setBusy(form, false);
+
+                    if (res.type.indexOf('application/json') !== -1) {
+                        var data = {};
+                        try { data = JSON.parse(res.text); } catch (e) { data = {}; }
+                        if (res.ok && data.ok !== false) {
+                            window.rfFlash(data.message || 'تم تنفيذ العملية بنجاح.', 'success');
+                            if (data.redirect) { window.location.href = data.redirect; }
+                            else if (data.reload !== false) { window.setTimeout(function () { window.location.reload(); }, 700); }
+                        } else {
+                            window.rfFlash(data.message || data.error || 'تعذّر تنفيذ العملية.', 'error');
+                        }
+                        return;
+                    }
+
+                    if (!res.ok) {
+                        window.rfFlash('تعذّر الحفظ (رمز ' + res.status + '). لم تُحفظ العملية، حاول مرة أخرى.', 'error');
+                        return;
+                    }
+
+                    // استجابة HTML: أعد تحميل الصفحة النهائية (بعد إعادة التوجيه) أو نفس الصفحة
+                    // (عند وجود أخطاء نموذج يُعيد الخادم عرضها). لا ادّعاء نجاح لمنطق غير مؤكد.
+                    window.setTimeout(function () { window.location.href = res.url || window.location.href; }, 400);
+                }).catch(function () {
+                    form.dataset.rfAjaxSending = '0';
+                    setBusy(form, false);
+                    window.rfFlash('تعذّر الاتصال بالخادم. لم تُحفظ العملية، تحقّق من الشبكة وأعد المحاولة.', 'error');
+                });
+            }
+
+            document.addEventListener('submit', function (e) {
+                var form = e.target;
+                if (!form || form.tagName !== 'FORM') { return; }
+                // تفعيل AJAX لكل النماذج افتراضياً (أو عند data-ajax="1")،
+                // مع إمكانية التعطيل عبر data-ajax="0" (مثل رفع الملفات أو الطباعة).
+                var ajaxFlag = form.getAttribute('data-ajax');
+                if (ajaxFlag === '0') { return; }
+                if (form.hasAttribute('data-allow-double-submit')) { return; }
+                if (form.enctype && form.enctype === 'multipart/form-data' && ajaxFlag !== '1') { return; }
+                e.preventDefault();
+                handleForm(form);
+            }, true);
+
+            document.addEventListener('click', function (e) {
+                var el = e.target.closest('[data-ajax-click]');
+                if (!el) { return; }
+                if (el.dataset.rfAjaxSending === '1') { return; }
+                var url = el.getAttribute('data-ajax-url') || el.getAttribute('href');
+                if (!url) { return; }
+                e.preventDefault();
+                var confirmMsg = el.getAttribute('data-ajax-confirm');
+                if (confirmMsg && !window.confirm(confirmMsg)) { return; }
+                el.dataset.rfAjaxSending = '1';
+                var method = (el.getAttribute('data-ajax-method') || 'POST').toUpperCase();
+                fetch(url, {
+                    method: method,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    credentials: 'same-origin'
+                }).then(function (resp) {
+                    return resp.text().then(function (t) {
+                        return { ok: resp.ok, status: resp.status, text: t, url: resp.url, type: resp.headers.get('content-type') || '' };
+                    });
+                }).then(function (res) {
+                    el.dataset.rfAjaxSending = '0';
+                    var data = {};
+                    if (res.type.indexOf('application/json') !== -1) {
+                        try { data = JSON.parse(res.text); } catch (e2) { data = {}; }
+                    }
+                    if (res.ok && data.ok !== false) {
+                        window.rfFlash(data.message || 'تم تنفيذ العملية بنجاح.', 'success');
+                        if (data.redirect) { window.location.href = data.redirect; }
+                        else { window.setTimeout(function () { window.location.reload(); }, 700); }
+                    } else {
+                        window.rfFlash(data.message || data.error || ('تعذّر تنفيذ العملية (رمز ' + res.status + ').'), 'error');
+                    }
+                }).catch(function () {
+                    el.dataset.rfAjaxSending = '0';
+                    window.rfFlash('تعذّر الاتصال بالخادم، حاول مرة أخرى.', 'error');
+                });
             }, true);
         })();
     </script>

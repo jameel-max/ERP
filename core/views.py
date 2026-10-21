@@ -16,6 +16,7 @@ from .models import Notification, SystemSetting, AuditLog, Attachment
 from .forms import CustomLoginForm, SystemSettingForm
 from .permissions import manager_required, owner_required, accountant_required
 from .delete_registry import is_deletable
+from .ajax import is_ajax, ajax_response
 from .utils import save_form_transactionally
 from .attachments import MAX_IMAGES_PER_OBJECT, is_attachable, save_uploaded_images
 from .wipe_service import wipe_database, CONFIRM_PHRASE
@@ -364,6 +365,8 @@ def generic_delete(request, app_label, model_name, pk):
             reason='حذف سجل بشكل منفرد',
         )
         messages.success(request, f'تم حذف «{label}» بنجاح.')
+        if is_ajax(request):
+            return ajax_response(ok=True, message=f'تم حذف «{label}» بنجاح.', redirect=next_url)
         return redirect(next_url)
 
     return render(request, 'core/confirm_delete.html', {

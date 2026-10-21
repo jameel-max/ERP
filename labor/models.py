@@ -176,11 +176,97 @@ class Employee(models.Model):
     def paid_total(self):
         return self.salary_payments.aggregate(t=models.Sum('amount'))['t'] or Decimal('0.000')
 
+    def deductions_for(self, year, month):
+        """مجموع خصومات موظف لشهر محدد (كغ/دينار) — يُستخدم لحساب صافي الراتب."""
+        from decimal import Decimal as _D
+        return self.deductions.filter(year=year, month=month).aggregate(
+            t=models.Sum('amount')
+        )['t'] or _D('0.000')
+
+    def net_salary_for(self, year, month):
+        """
+        الصافي المستحق لشهر محدد = الراتب الشهري الأساسي − مجموع خصومات الشهر.
+        لا يكون سالباً أبداً (الخصومات الزائدة عن الراتب تُصفَّر).
+        """
+        net = self.monthly_salary - self.deductions_for(year, month)
+        return net if net > 0 else Decimal('0.000')
+
+
+class EmployeeDeduction(models.Model):
+    """
+    خصم على راتب موظف: سجل مستقل (غياب، سلفة، تأخير، أخرى) بتاريخ ومبلغ وسبب.
+
+    القاعدة: لا يعدّل هذا السجل الراتب الأساسي المحفوظ في بطاقة الموظف، بل يُجمَّع
+    عند صرف الراتب لتحديد **الصافي** الذي يُخصم من الخزينة.
+    """
+    class Type(models.TextChoices):
+        ABSENCE = 'ABSENCE', 'غياب'
+        ADVANCE = 'ADVANCE', 'سلفة'
+        LATENESS = 'LATENESS', 'تأخير'
+        PENALTY = 'PENALTY', 'جزاء / مخالفة'
+        OTHER = 'OTHER', 'أخرى'
+
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name='deductions',
+        verbose_name='الموظف'
+    )
+    deduction_type = models.CharField(
+        max_length=20,
+        choices=Type.choices,
+        default=Type.ABSENCE,
+        verbose_name='نوع الخصم'
+    )
+    year = models.PositiveIntegerField(verbose_name='السنة')
+    month = models.PositiveSmallIntegerField(verbose_name='الشهر (1-12)')
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        default=Decimal('0.000'),
+        verbose_name='مبلغ الخصم (دينار)'
+    )
+    deduction_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name='تاريخ الخصم'
+    )
+    reason = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name='السبب / البيان'
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_employee_deductions',
+        verbose_name='المحرر'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'خصم على راتب موظف'
+        verbose_name_plural = 'خصومات رواتب الموظفين'
+        ordering = ['-year', '-month', '-created_at']
+
+    def __str__(self):
+        return f"{self.employee.name} — {self.get_deduction_type_display()} {self.amount} دينار ({self.period_label})"
+
+    @property
+    def period_label(self):
+        return f'{self.month:02d}/{self.year}'
+
 
 class EmployeeSalaryPayment(models.Model):
     """
     صرف راتب شهري لموظف: قيد مستقل لكل شهر (منع الازدواج عبر قيد فريد لكل موظف/شهر).
     يمكن قيده في الخزينة عند الصرف الفعلي (حالة «مدفوع»)، أو تركه «مستحقاً» بلا قيد خزينة.
+
+    عند وجود خصومات على شهر الموظف: `gross_amount` هو الراتب الأساسي، و`deductions_total`
+    مجموع الخصومات، و`amount` هو **الصافي** المصروف فعلاً (gross - deductions).
+    تبقى القاعدة 4 سارية: رواتب الموظفين مستقلة تماماً عن الورش وكلفة الكيلو الموضب.
     """
     class Status(models.TextChoices):
         ACCRUED = 'ACCRUED', 'مستحق (غير مدفوع)'
@@ -194,11 +280,23 @@ class EmployeeSalaryPayment(models.Model):
     )
     year = models.PositiveIntegerField(verbose_name='السنة')
     month = models.PositiveSmallIntegerField(verbose_name='الشهر (1-12)')
+    gross_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        default=Decimal('0.000'),
+        verbose_name='الراتب الأساسي قبل الخصم (دينار)'
+    )
+    deductions_total = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        default=Decimal('0.000'),
+        verbose_name='مجموع الخصومات (دينار)'
+    )
     amount = models.DecimalField(
         max_digits=12,
         decimal_places=3,
         default=Decimal('0.000'),
-        verbose_name='مبلغ الراتب (دينار)'
+        verbose_name='الصافي المصروف (دينار)'
     )
     status = models.CharField(
         max_length=20,
