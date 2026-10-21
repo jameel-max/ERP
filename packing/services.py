@@ -449,6 +449,16 @@ class PackingService:
             cls._recalculate_input_weight_from_consumptions(session)
 
             leftover_pallets = cls._leftover_pallets(session)
+
+            if all_packed is None:
+                # سؤال المحاسب إلزامي عند إنهاء العملية — يُطبَّق على مستوى
+                # الخدمة أيضاً وليس في الواجهة وحدها.
+                raise ValidationError(
+                    "يجب الإجابة عن سؤال المحاسب قبل إنهاء عملية التوضيب: "
+                    "«هل تم توضيب جميع الكميات الخام المستخدمة في هذه العملية، "
+                    "بما فيها الصناديق المسحوبة من البراد، أم ما زالت هناك كميات خام متبقية؟»"
+                )
+
             if all_packed is True:
                 # تحقق: كل الكميات المسجلة كمستخدمة تم صرفها فعلياً بحركة موثقة
                 unmoved = [

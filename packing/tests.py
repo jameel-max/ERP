@@ -1671,6 +1671,48 @@ class PackingQuantityLedgerTests(TestCase):
         stored = [str(m) for m in resp.wsgi_request._messages]
         self.assertTrue(any('كميات خام متبقية' in m for m in stored))
 
+    # ---------------- استكمال التوضيب في عملية غير مكتملة ----------------
+
+    def test_incomplete_session_can_be_continued(self):
+        """عملية «توضيب غير مكتمل» تبقى مفتوحة ويمكن استكمال التوضيب فيها."""
+        session = self._start_session([self.pallets[0]])
+        PackingService.record_outputs_and_finalize(
+            session, [self._output('XL')],
+            allocations=[[{'source_pallet': self.pallets[0].id, 'box_count': 10}]],
+            all_packed=False, user=self.accountant,
+        )
+        session.refresh_from_db()
+        self.assertEqual(session.status, PackingSession.Status.INCOMPLETE)
+
+        # استكمال التوضيب بسحب الباقي من نفس الطبلية
+        PackingService.record_outputs_and_finalize(
+            session, [self._output('L')],
+            allocations=[[{'source_pallet': self.pallets[0].id, 'box_count': 40}]],
+            all_packed=True, user=self.accountant,
+        )
+        session.refresh_from_db()
+        self.assertEqual(session.status, PackingSession.Status.COMPLETED)
+        self.assertEqual(session.packed_pallets.count(), 2)
+        self.assertEqual(session.raw_consumptions.count(), 2)
+        self.assertTrue(session.all_packed_confirmed)
+
+        pallet = Pallet.objects.get(pk=self.pallets[0].id)
+        self.assertEqual(pallet.consumed_box_count, 50)
+        self.assertEqual(pallet.remaining_box_count, 0)
+
+    def test_accountant_answer_is_mandatory_in_the_service(self):
+        """لا يمكن إنهاء العملية بإجابة «نعم» إذا لم تُسجَّل أي كمية مصرفة بحركة."""
+        session = self._start_session([self.pallets[0]])
+        with self.assertRaises(ValidationError):
+            PackingService.record_outputs_and_finalize(
+                session, [self._output()],
+                allocations=[[{'source_pallet': self.pallets[0].id, 'box_count': 10}]],
+                all_packed=None, user=self.accountant,
+            )
+        session.refresh_from_db()
+        self.assertEqual(session.packed_pallets.count(), 0)
+        self.assertEqual(session.status, PackingSession.Status.DRAFT)
+
     # ---------------- واجهة المستخدم: عرض الصفحات الجديدة ----------------
 
     def test_detail_page_renders_ledger_leftovers_and_question(self):
