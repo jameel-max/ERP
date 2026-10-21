@@ -23,7 +23,9 @@ from config.wsgi import application  # noqa: E402
 
 def main():
     host = os.environ.get('SERVER_HOST', '0.0.0.0')
-    port = int(os.environ.get('SERVER_PORT', '8000'))
+    # Render (وغيره من المنصات السحابية) يضبط المنفذ في المتغير PORT.
+    # نعطيه الأولوية، ثم SERVER_PORT، ثم 8000 افتراضياً.
+    port = int(os.environ.get('PORT') or os.environ.get('SERVER_PORT', '8000'))
     threads = int(os.environ.get('SERVER_THREADS', '8'))
     print(f'Royal Fruit ERP -> http://{host}:{port} (threads={threads})')
     serve(application, host=host, port=port, threads=threads)

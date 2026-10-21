@@ -1,0 +1,33 @@
+# ---------------------------------------------------------------------------
+# إعداد نشر نظام Royal Fruit ERP على Render.
+#
+# الهدف: أن يكون أمر البناء وأمر التشغيل معرَّفَين في المستودع نفسه،
+# فلا يُنسى تشغيل الـ migrations (وهو سبب أخطاء 500 بعد كل تعديل قاعدة بيانات).
+#
+# مهم: هذا الملف لا يُستخدم إلا إذا فعّلت «Blueprint» في Render على هذا
+# المستودع. وإذا كانت الخدمة موجودة مسبقاً، فبديله المباشر هو ضبط
+# Build Command في لوحة التحكم على:  ./build.sh
+# ---------------------------------------------------------------------------
+services:
+  - type: web
+    name: royal-fruit-erp
+    runtime: python
+    plan: free
+    buildCommand: "./build.sh"
+    startCommand: "python scripts/production_server.py"
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+      # يُدار سرّياً في لوحة Render (قاعدة بيانات Neon)
+      - key: DATABASE_URL
+        sync: false
+      # ضع هنا مفتاحك السري الحقيقي من لوحة Render (لا تكتبه في المستودع)
+      - key: SECRET_KEY
+        sync: false
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: "royal-fruit-erp.onrender.com"
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: "https://royal-fruit-erp.onrender.com"
