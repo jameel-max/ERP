@@ -18,6 +18,8 @@
                         <span class="badge bg-success fs-6"><i class="bi bi-check2-all me-1"></i> مكتملة وموضبة</span>
                         {% elif session.status == 'PENDING_APPROVAL' %}
                         <span class="badge bg-danger fs-6"><i class="bi bi-shield-exclamation me-1"></i> بانتظار اعتماد المدير (فرق وزن)</span>
+                        {% elif session.status == 'INCOMPLETE' %}
+                        <span class="badge bg-warning text-dark fs-6"><i class="bi bi-exclamation-triangle me-1"></i> توضيب غير مكتمل (كميات خام متبقية)</span>
                         {% else %}
                         <span class="badge bg-warning text-dark fs-6"><i class="bi bi-hourglass-split me-1"></i> قيد العمل والفرز</span>
                         {% endif %}
@@ -113,7 +115,7 @@
     </div>
 
     <!-- نموذج إدخال نواتج المقاسات (إذا كانت قيد العمل) -->
-    {% if session.status == 'DRAFT' %}
+    {% if session.status == 'DRAFT' or session.status == 'INCOMPLETE' %}
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-header card-header-royal py-3">
             <h5 class="mb-0 fw-bold"><i class="bi bi-box-seam me-2"></i> إدخال نواتج التوضيب بالمقاسات والهالك</h5>
@@ -130,13 +132,11 @@
                 <div class="alert alert-light border py-2 mb-3 d-flex flex-wrap gap-3 align-items-center">
                     <span class="badge bg-dark">طبالي الاستلام المتاحة: {{ session.source_pallets.count }}</span>
                     <span class="badge bg-success" id="rowsCounter">أسطر النواتج: 1</span>
-                    <span class="badge bg-danger d-none" id="rowsWarning">
-                        <i class="bi bi-exclamation-triangle me-1"></i> عدد الأسطر أكبر من عدد الطبالي المتاحة
-                    </span>
                     <span class="small text-muted">
-                        لا يمكن أن يتجاوز عدد أسطر النواتج (كل سطر = طبلية موضبة) عدد طبالي الاستلام المسحوبة من البراد في هذه الجلسة.
-                        <strong>أي طبلية مسحوبة لا تُوضّب تُعاد تلقائياً إلى البراد في نفس السيخ عند الحفظ،</strong>
-                        ويُحتسب الرندمان من الطبالي الموضّبة فعلاً فقط.
+                        <i class="bi bi-diagram-3 me-1"></i>
+                        عدد طبالي الخام <strong>لا يساوي</strong> عدد الطبالي الموضبة؛ فقد تُنتج ٤ طبالي خام طبليتين موضبتين فقط.
+                        الأساس في احتساب الاستهلاك هو <strong>الكمية الفعلية</strong> ومصدرها:حدّد في كل سطر ناتج الطبلية الخام المصدر وعدد الصناديق المسحوبة منها،
+                        ويمكن أن تُغذّى الطبلية الموضبة الواحدة من أكثر من طبلية خام (بما فيها طبلية في البراد).
                     </span>
                 </div>
                 <div id="outputsContainer"></div>
@@ -174,6 +174,25 @@
                             </button>
                         </div>
 
+                        <!-- مصادر الكميات الخام التي غذّت هذا الناتج (قد تكون أكثر من طبلية) -->
+                        <div class="col-12">
+                            <div class="border rounded bg-light p-2 mt-1">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="small fw-bold text-secondary">
+                                        <i class="bi bi-diagram-3 me-1"></i> مصادر الكميات الخام المستخدمة في هذا الناتج *
+                                    </span>
+                                    <button type="button" class="btn btn-outline-primary btn-sm add-alloc-row">
+                                        <i class="bi bi-plus-lg me-1"></i> إضافة مصدر خام
+                                    </button>
+                                </div>
+                                <div class="alloc-items-container" data-alloc-container></div>
+                                <small class="text-muted d-block mt-1">
+                                    حدّد الطبلية الخام المصدر وعدد <strong>صناديق المزرعة</strong> المسحوبة منها.
+                                    يمكن السحب من طبلية في البراد لإكمال هذا الناتج (تُخصم من رصيدها المتاح فقط).
+                                </small>
+                            </div>
+                        </div>
+
                         <!-- أصناف التغليف العادية المستخدمة في هذا الناتج (أكثر من صنف ومن مجموعات مختلفة) -->
                         <div class="col-12">
                             <div class="border rounded bg-light p-2 mt-1">
@@ -198,6 +217,31 @@
                 <button type="button" class="btn btn-outline-success btn-sm mt-2 mb-4" id="addOutputRow">
                     <i class="bi bi-plus-circle me-1"></i> إضافة مقاس ناتج آخر
                 </button>
+
+                <!-- قالب سطر مصدر خام واحد يُستنسخ داخل كل سطر ناتج -->
+                <template id="allocItemTemplate">
+                    <div class="row g-2 align-items-center mb-1 alloc-item-row" data-alloc-row>
+                        <input type="hidden" name="alloc_output_idx[]" value="0">
+                        <div class="col-md-8">
+                            <select name="alloc_pallet[]" class="form-select form-select-sm alloc-pallet-select">
+                                <option value="">— اختر الطبلية الخام المصدر —</option>
+                                {% for p in allocatable_pallets %}
+                                <option value="{{ p.id }}" data-remaining="{{ p.remaining_box_count }}">
+                                    {{ p.pallet_code }} — {{ p.truck_receipt.lot_number }} (متبقٍ: {{ p.remaining_box_count }} صندوق)
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <input type="number" name="alloc_boxes[]" class="form-control form-control-sm alloc-boxes" value="0" min="0" placeholder="عدد الصناديق المسحوبة">
+                        </div>
+                        <div class="col-md-1 text-center">
+                            <button type="button" class="btn btn-outline-danger btn-sm remove-alloc-row" title="حذف المصدر">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                    </div>
+                </template>
 
                 <!-- قالب صنف تغليف واحد يُستنسخ بواسطة JS داخل كل سطر ناتج -->
                 <template id="pkgItemTemplate">
@@ -300,6 +344,40 @@
                     <span class="fw-bold"><i class="bi bi-cash-coin me-1 text-success"></i> إجمالي خصم أصناف التغليف على التاجر:</span>
                     <span class="fs-5 fw-bold text-success"><span id="pkgGrandTotal">0.000</span> د.أ</span>
                 </div>
+
+                <!--
+                    سؤال المحاسب الإلزامي عند إنهاء العملية.
+                    الخيار «لا» يُبقي العملية مفتوحة بحالة «توضيب غير مكتمل» ويعرض
+                    الطبلية الخام المفتوحة وصناديقها المتبقية، ولا يُسمح بإغلاق
+                    العملية قبل معالجة المتبقي أو تسجيل تسوية معتمدة.
+                -->
+                <div class="card border-warning mb-4">
+                    <div class="card-header bg-warning-subtle py-2">
+                        <h6 class="fw-bold mb-0 text-dark">
+                            <i class="bi bi-question-circle me-1"></i> سؤال المحاسب (إجباري) عند إنهاء عملية التوضيب
+                        </h6>
+                    </div>
+                    <div class="card-body bg-white">
+                        <p class="fw-bold mb-2">
+                            هل تم توضيب جميع الكميات الخام المستخدمة في هذه العملية، بما فيها الصناديق المسحوبة من البراد، أم ما زالت هناك كميات خام متبقية؟
+                        </p>
+                        <div class="form-check mb-1">
+                            <input class="form-check-input" type="radio" name="all_packed" value="yes" id="allPackedYes" required>
+                            <label class="form-check-label" for="allPackedYes">
+                                <strong>نعم، تم توضيب جميع الكميات</strong>
+                                <span class="text-muted small">— يُتحقَّق من خلوّ العملية من أي خام غير محسوم، ثم تُغلق.</span>
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="all_packed" value="no" id="allPackedNo" required>
+                            <label class="form-check-label" for="allPackedNo">
+                                <strong>لا، ما زالت هناك كميات خام متبقية</strong>
+                                <span class="text-muted small">— تبقى العملية مفتوحة (توضيب غير مكتمل) لعرض المتبقي واستكمال التوضيب.</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
                 <button type="submit" class="btn btn-royal px-5 py-2 fs-5">
                     <i class="bi bi-check2-circle me-1"></i> اعتماد نواتج التوضيب واحتساب الرندمان وتوليد الطبالي
                 </button>
@@ -492,35 +570,240 @@
                         <th>السيارة (Lot)</th>
                         <th>البراد والسيخ المسحوب منه</th>
                         <th>الصناديق الأصلية</th>
+                        <th>المستهلكة</th>
+                        <th>المتبقي</th>
                         <th>الوزن الصافي التقديري</th>
                         <th>أيام البقاء بالبراد</th>
-                        {% if session.status != 'DRAFT' %}<th>المصير</th>{% endif %}
+                        <th>المصير</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for p in session.source_pallets.all %}
-                    <tr>
+                    <tr class="{% if p.remaining_box_count > 0 %}table-warning{% endif %}">
                         <td class="fw-bold">{{ p.pallet_code }}</td>
                         <td>{{ p.truck_receipt.lot_number }}</td>
                         <td>{{ p.cold_store.name }} {% if p.shelf %}– السيخ {{ p.shelf.shelf_number }}{% endif %}</td>
                         <td>{{ p.box_count }}</td>
+                        <td>{{ p.consumed_box_count }}</td>
+                        <td class="fw-bold">
+                            {{ p.remaining_box_count }}
+                            {% if p.remaining_box_count > 0 %}
+                            <span class="badge bg-warning text-dark">متبقٍ غير موضب</span>
+                            {% endif %}
+                        </td>
                         <td class="fw-bold">{{ p.estimated_net_weight }} كغ</td>
                         <td>{{ p.days_in_cooling }} يوم</td>
-                        {% if session.status != 'DRAFT' %}
                         <td>
                             {% if p.status == 'PACKED' %}
                             <span class="badge bg-success">وُضّبت</span>
                             {% elif p.status == 'IN_COOLING' %}
                             <span class="badge bg-info text-dark">أُعيدت إلى البراد</span>
+                            {% elif p.status == 'OPEN_PARTIAL' %}
+                            <span class="badge bg-warning text-dark">مفتوحة (خام متبقٍ)</span>
                             {% else %}
                             <span class="badge bg-secondary">{{ p.get_status_display }}</span>
                             {% endif %}
                         </td>
-                        {% endif %}
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
+        </div>
+    </div>
+
+    <!--
+        دفتر الكميات الخام: مصدر كل كمية، وموقع تخزينها، وحركتها، ورصيد الطبلية بعدها.
+        هذا هو الأساس في احتساب الاستهلاك، وهو مستقل تماماً عن عدد الطبالي.
+    -->
+    {% if raw_consumptions %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+            <h5 class="fw-bold mb-0 text-dark">
+                <i class="bi bi-journal-text text-primary me-2"></i> دفتر الكميات الخام المستخدمة (مصدر كل كمية)
+            </h5>
+            <span class="badge bg-primary fs-6">{{ raw_consumptions|length }} سطر سحب</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>الطبلية الخام المصدر</th>
+                        <th>الطبلية الموضبة التي غُذّيت</th>
+                        <th>عدد الصناديق المسحوبة</th>
+                        <th>نصيب الطبلية من الوزن التقديري</th>
+                        <th>صافي الوزن المنسوب</th>
+                        <th>الرصيد بعد السحب</th>
+                        <th>موقع التخزين وقت السحب</th>
+                        <th>حركة الصرف</th>
+                        <th>المستخدم / الوقت</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in raw_consumptions %}
+                    <tr>
+                        <td class="fw-bold"><code>{{ c.source_pallet.pallet_code }}</code></td>
+                        <td>
+                            {% if c.packed_pallet %}
+                            <span class="badge bg-success">{{ c.packed_pallet.packed_pallet_code }}</span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td><span class="badge bg-dark">{{ c.box_count }}</span></td>
+                        <td>{{ c.estimated_weight_kg }} كغ</td>
+                        <td class="fw-bold">{{ c.net_weight_kg }} كغ</td>
+                        <td>{{ c.remaining_box_count }} صندوق</td>
+                        <td class="small">
+                            {% if c.cold_store %}{{ c.cold_store.name }}{% else %}—{% endif %}
+                            {% if c.shelf %}– السيخ {{ c.shelf.shelf_number }}{% endif %}
+                        </td>
+                        <td class="small">
+                            {% if c.movement %}
+                            <span class="badge bg-light text-dark border">{{ c.movement.movement_type }}</span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="small text-muted">
+                            {{ c.created_by.username|default:"—" }}<br>
+                            {{ c.created_at|date:"Y-m-d H:i" }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!--
+        الكميات الخام المتبقية غير المحسومة + إجراءات معالجتها.
+        لا يُسمح بإغلاق العملية قبل معالجة هذه الكميات أو تسجيل تسوية معتمدة.
+    -->
+    {% if leftover_pallets or session.status == 'INCOMPLETE' %}
+    <div class="card shadow-sm mb-4 border-warning">
+        <div class="card-header bg-warning-subtle py-3 d-flex justify-content-between align-items-center">
+            <h5 class="fw-bold mb-0 text-dark">
+                <i class="bi bi-exclamation-triangle me-2"></i> كميات خام متبقية غير محسومة
+            </h5>
+            <span class="badge bg-warning text-dark fs-6">{{ leftover_pallets|length }} طبلية</span>
+        </div>
+        <div class="card-body bg-white">
+            {% if leftover_pallets %}
+            <div class="table-responsive mb-3">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>الطبلية الخام</th>
+                            <th>الصناديق المتبقية</th>
+                            <th>الوزن التقديري المتبقي</th>
+                            <th>الحالة</th>
+                            <th>إجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in leftover_pallets %}
+                        <tr>
+                            <td class="fw-bold"><code>{{ p.pallet_code }}</code></td>
+                            <td><span class="badge bg-warning text-dark">{{ p.remaining_box_count }}</span></td>
+                            <td>{{ p.estimated_net_weight }} كغ</td>
+                            <td><span class="badge bg-secondary">{{ p.get_status_display }}</span></td>
+                            <td>
+                                <a href="{% url 'packing_settle_leftovers' session.pk %}" class="btn btn-outline-warning btn-sm">
+                                    <i class="bi bi-check2-square me-1"></i> تسجيل تسوية
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+            <p class="text-muted small mb-2">
+                <i class="bi bi-info-circle me-1"></i>
+                لإكمال التوضيب من الكميات المتاحة: استكمل إدخال النواتج أعلاه مع تحديد مصادرها،
+                أو أضف طبالي خام جديدة من البراد، أو سجّل تسوية معتمدة لمصير الباقي
+                (إعادة للبراد أو تسوية/إتلاف) قبل إغلاق العملية.
+            </p>
+            <div class="d-flex flex-wrap gap-2">
+                <a href="{% url 'packing_add_raw' session.pk %}" class="btn btn-outline-royal btn-sm">
+                    <i class="bi bi-plus-circle me-1"></i> إضافة طبالي خام من البراد
+                </a>
+                <a href="{% url 'packing_settle_leftovers' session.pk %}" class="btn btn-outline-warning btn-sm">
+                    <i class="bi bi-check2-square me-1"></i> تسوية الكميات المتبقية
+                </a>
+                <form method="post" action="{% url 'packing_close' session.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-outline-success btn-sm">
+                        <i class="bi bi-lock me-1"></i> إغلاق العملية بعد المعالجة
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- تسويات الكميات الخام المتبقية -->
+    {% if leftover_settlements %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom py-3">
+            <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-clipboard-check text-primary me-2"></i> تسويات الكميات الخام المتبقية</h5>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>الطبلية</th>
+                        <th>عدد الصناديق</th>
+                        <th>نوع التسوية</th>
+                        <th>المبرر</th>
+                        <th>نفّذها</th>
+                        <th>الوقت</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in leftover_settlements %}
+                    <tr>
+                        <td class="fw-bold"><code>{{ s.pallet.pallet_code }}</code></td>
+                        <td>{{ s.box_count }}</td>
+                        <td><span class="badge bg-secondary">{{ s.get_resolution_display }}</span></td>
+                        <td class="small">{{ s.notes|default:"—" }}</td>
+                        <td class="small">{{ s.settled_by.username|default:"—" }}</td>
+                        <td class="small text-muted">{{ s.settled_at|date:"Y-m-d H:i" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- إجابة المحاسب عند إنهاء العملية -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom py-3">
+            <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-person-check text-primary me-2"></i> تأكيد المحاسب عند إنهاء العملية</h5>
+        </div>
+        <div class="card-body bg-white">
+            {% if session.all_packed_confirmed %}
+            <p class="mb-0 text-success">
+                <i class="bi bi-check2-circle me-1"></i>
+                أكّد المحاسب أن جميع الكميات الخام المستخدمة في هذه العملية تم توضيبها.
+            </p>
+            <small class="text-muted">
+                بواسطة: {{ session.all_packed_confirmed_by.username|default:"—" }} —
+                {{ session.all_packed_confirmed_at|date:"Y-m-d H:i" }}
+            </small>
+            {% elif session.status == 'INCOMPLETE' %}
+            <p class="mb-0 text-warning">
+                <i class="bi bi-exclamation-triangle me-1"></i>
+                لم يُؤكَّد توضيب جميع الكميات الخام: العملية ما زالت مفتوحة (توضيب غير مكتمل).
+            </p>
+            {% else %}
+            <p class="mb-0 text-muted">
+                <i class="bi bi-hourglass-split me-1"></i>
+                لم يُسجَّل تأكيد المحاسب بعد (تُسجَّل الإجابة عند إنهاء العملية).
+            </p>
+            {% endif %}
         </div>
     </div>
 
@@ -535,13 +818,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const container = document.getElementById('outputsContainer');
     const form = document.getElementById('packingForm');
     const counter = document.getElementById('rowsCounter');
-    const warning = document.getElementById('rowsWarning');
     const pkgTemplate = document.getElementById('pkgItemTemplate');
     const pkgGrandTotal = document.getElementById('pkgGrandTotal');
     const feTemplate = document.getElementById('farmEmptyTemplate');
     const feContainer = document.getElementById('farmEmptyContainer');
-    // كل سطر إدخال = طبلية موضبة واحدة، فلا يجوز تجاوز عدد طبالي الاستلام المتاحة
-    const maxRows = {{ session.source_pallets.count|unlocalize }};
+    const allocTemplate = document.getElementById('allocItemTemplate');
 
     function usedRows() {
         if (!container) return 0;
@@ -549,6 +830,34 @@ document.addEventListener('DOMContentLoaded', function() {
             const sizeInput = row.querySelector('input[name="size_name[]"]');
             return sizeInput && sizeInput.value.trim() !== '';
         }).length;
+    }
+
+    // إعادة ترقيم أسطر مصادر الكميات الخام وضبط alloc_output_idx[] حسب ترتيب السطر الحالي
+    function reindexAllocRows() {
+        if (!container) return;
+        const rows = Array.from(container.querySelectorAll('.output-row'));
+        rows.forEach(function(row, idx) {
+            row.querySelectorAll('[data-alloc-row]').forEach(function(allocRow) {
+                let hidden = allocRow.querySelector('input[name="alloc_output_idx[]"]');
+                if (!hidden) {
+                    hidden = document.createElement('input');
+                    hidden.type = 'hidden';
+                    hidden.name = 'alloc_output_idx[]';
+                    allocRow.appendChild(hidden);
+                }
+                hidden.value = idx;
+            });
+        });
+    }
+
+    // إضافة سطر مصدر خام إلى سطر ناتج
+    function addAllocRowTo(outputRow) {
+        if (!allocTemplate) return;
+        const containerEl = outputRow.querySelector('[data-alloc-container]');
+        if (!containerEl) return;
+        const clone = allocTemplate.content.cloneNode(true);
+        containerEl.appendChild(clone);
+        reindexAllocRows();
     }
 
     // إعادة ترقيم أسطر النواتج وضبط pkg_output_idx[] لأصناف التغليف حسب ترتيب السطر الحالي
@@ -612,15 +921,6 @@ document.addEventListener('DOMContentLoaded', function() {
         const used = usedRows();
         if (counter) {
             counter.textContent = 'أسطر النواتج: ' + used;
-            counter.classList.toggle('bg-danger', used > maxRows);
-            counter.classList.toggle('bg-success', used <= maxRows);
-        }
-        if (warning) {
-            warning.classList.toggle('d-none', used <= maxRows);
-        }
-        if (addBtn) {
-            addBtn.disabled = maxRows > 0 && used >= maxRows;
-            addBtn.title = (maxRows > 0 && used >= maxRows) ? 'لا يمكن إضافة سطر أكثر من عدد الطبالي المتاحة' : '';
         }
         if (container) {
             const rowCount = container.querySelectorAll('.output-row').length;
@@ -629,19 +929,20 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
         reindexPkgRows();
+        reindexAllocRows();
         refreshPkgTotals();
     }
 
     if (addBtn && container) {
         addBtn.addEventListener('click', function() {
-            if (usedRows() >= maxRows) {
-                return;
-            }
             const outputTemplate = document.getElementById('outputRowTemplate');
             if (!outputTemplate) return;
             // بناء سطر ناتج جديد فارغ تماماً من القالب
             const clone = outputTemplate.content.cloneNode(true);
             container.appendChild(clone);
+            // كل سطر ناتج يحتاج مصدراً واحداً على الأقل للكميات الخام
+            const newRow = container.lastElementChild;
+            addAllocRowTo(newRow);
             refreshCounter();
         });
     }
@@ -679,6 +980,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 refreshPkgTotals();
                 return;
             }
+            const addAllocBtn = event.target.closest('.add-alloc-row');
+            if (addAllocBtn) {
+                addAllocRowTo(addAllocBtn.closest('.output-row'));
+                return;
+            }
+            const removeAllocBtn = event.target.closest('.remove-alloc-row');
+            if (removeAllocBtn) {
+                removeAllocBtn.closest('[data-alloc-row]').remove();
+                reindexAllocRows();
+                return;
+            }
         });
         container.addEventListener('input', function() { refreshCounter(); });
         container.addEventListener('change', function() { refreshPkgTotals(); });
@@ -686,10 +998,32 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (form) {
         form.addEventListener('submit', function(event) {
-            const used = usedRows();
-            if (maxRows > 0 && used > maxRows) {
+            // التحقق من إجابة سؤال المحاسب الإلزامي
+            const answered = form.querySelector('input[name="all_packed"]:checked');
+            if (!answered) {
                 event.preventDefault();
-                alert('عدد أسطر النواتج (' + used + ') أكبر من عدد الطبالي المتاحة (' + maxRows + ').');
+                alert('يجب الإجابة عن سؤال المحاسب: هل تم توضيب جميع الكميات الخام أم ما زالت هناك كميات متبقية؟');
+                return;
+            }
+            // التحقق من تحديد مصدر الكميات الخام لكل سطر ناتج
+            const rows = Array.from(container ? container.querySelectorAll('.output-row') : []);
+            const missing = rows.filter(function(row) {
+                const sizeInput = row.querySelector('input[name="size_name[]"]');
+                if (!sizeInput || sizeInput.value.trim() === '') return false;
+                const allocRows = row.querySelectorAll('[data-alloc-row]');
+                let ok = false;
+                allocRows.forEach(function(allocRow) {
+                    const sel = allocRow.querySelector('select[name="alloc_pallet[]"]');
+                    const boxes = allocRow.querySelector('input[name="alloc_boxes[]"]');
+                    if (sel && boxes && sel.value && parseInt(boxes.value || '0', 10) > 0) {
+                        ok = true;
+                    }
+                });
+                return !ok;
+            });
+            if (missing.length) {
+                event.preventDefault();
+                alert('يجب تحديد الطبلية الخام المصدر وعدد الصناديق المسحوبة لكل سطر ناتج (سطر واحد على الأقل).');
             }
         });
     }

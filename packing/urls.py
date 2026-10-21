@@ -8,6 +8,9 @@ urlpatterns = [
     path('packing/sessions/<int:pk>/finalize/', views.packing_finalize, name='packing_finalize'),
     path('packing/sessions/<int:pk>/edit/', views.packing_edit, name='packing_edit'),
     path('packing/sessions/<int:pk>/approve/', views.packing_manager_approve, name='packing_manager_approve'),
+    path('packing/sessions/<int:pk>/add-raw/', views.packing_add_raw, name='packing_add_raw'),
+    path('packing/sessions/<int:pk>/settle-leftovers/', views.packing_settle_leftovers, name='packing_settle_leftovers'),
+    path('packing/sessions/<int:pk>/close/', views.packing_close, name='packing_close'),
 
     # الطبالي الموضبة
     path('packing/pallets/', views.packed_pallets_list, name='packed_pallets_list'),

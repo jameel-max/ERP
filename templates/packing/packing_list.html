@@ -65,6 +65,8 @@
                             <span class="badge bg-success">مكتملة وموضبة</span>
                             {% elif s.status == 'PENDING_APPROVAL' %}
                             <span class="badge bg-danger">بانتظار اعتماد المدير</span>
+                            {% elif s.status == 'INCOMPLETE' %}
+                            <span class="badge bg-warning text-dark">توضيب غير مكتمل (خام متبقٍ)</span>
                             {% else %}
                             <span class="badge bg-warning text-dark">قيد العمل</span>
                             {% endif %}

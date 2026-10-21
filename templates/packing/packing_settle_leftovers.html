@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}تسوية الكميات الخام المتبقية — {{ session.session_code }} | {{ company_name_en }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="row justify-content-center">
+        <div class="col-md-9">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-royal py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0 fw-bold">
+                        <i class="bi bi-check2-square me-2"></i> تسوية الكميات الخام المتبقية — {{ session.session_code }}
+                    </h5>
+                    <a href="{% url 'packing_detail' session.pk %}" class="btn btn-sm btn-outline-light">
+                        <i class="bi bi-arrow-right me-1"></i> رجوع للتفاصيل
+                    </a>
+                </div>
+                <div class="card-body p-4 bg-white">
+                    <div class="alert alert-warning border-0 small mb-3">
+                        <i class="bi bi-info-circle me-1"></i>
+                        لا يجوز إغلاق عملية التوضيب ما دام في طبالي خام متبقٍ لم يُحدَّد مصيره.
+                        اختر الطبلية ونوع التسوية:
+                        <br>• <strong>إعادة الباقي للبراد</strong> — يبقى الباقي مخزوناً في نفس السيخ، وتخرج الطبلية من طبالي مصدر العملية.
+                        <br>• <strong>تسوية / إتلاف معتمد</strong> — يُصفَّر رصيد الطبلية ويُوثَّق ذلك،
+                        <strong>دون إنشاء أي قيود مالية تلقائية</strong> (الأثر المحاسبي يبقى بيد المحاسب).
+                    </div>
+
+                    {% if leftover_pallets %}
+                    {% for p in leftover_pallets %}
+                    <div class="card border mb-3">
+                        <div class="card-header bg-light py-2">
+                            <span class="fw-bold"><code>{{ p.pallet_code }}</code></span>
+                            <span class="badge bg-warning text-dark ms-2">{{ p.remaining_box_count }} صندوق متبقٍ</span>
+                            <span class="small text-muted ms-2">{{ p.truck_receipt.lot_number }}</span>
+                        </div>
+                        <div class="card-body">
+                            <form method="post">
+                                {% csrf_token %}
+                                <input type="hidden" name="pallet" value="{{ p.id }}">
+                                <div class="mb-2">
+                                    <label class="form-label fw-bold">نوع التسوية *</label>
+                                    <select name="resolution" class="form-select" required>
+                                        <option value="RETURN_TO_STORE">إعادة الباقي للبراد (يبقى مخزوناً)</option>
+                                        <option value="WRITE_OFF">تسوية / إتلاف معتمد</option>
+                                    </select>
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label fw-bold">مبررات التسوية</label>
+                                    <textarea name="notes" rows="2" class="form-control" placeholder="مطلوب في حالة التسوية/الإتلاف"></textarea>
+                                </div>
+                                <button type="submit" class="btn btn-royal btn-sm">
+                                    <i class="bi bi-check2 me-1"></i> تسجيل التسوية لهذه الطبلية
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <div class="alert alert-success border-0 mb-0">
+                        <i class="bi bi-check2-circle me-1"></i>
+                        لا توجد كميات خام متبقية غير محسومة في هذه العملية. يمكن إغلاقها الآن.
+                    </div>
+                    <div class="mt-3">
+                        <form method="post" action="{% url 'packing_close' session.pk %}">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-success">
+                                <i class="bi bi-lock me-1"></i> إغلاق عملية التوضيب
+                            </button>
+                        </form>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

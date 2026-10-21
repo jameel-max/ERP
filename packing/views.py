@@ -96,6 +96,33 @@ def packing_detail(request, pk):
             'qr_b64': generate_qr_base64(build_scan_url(request, 'packed_pallet_qr_scan', p.packed_pallet_code))
         })
 
+    # ---- دفتر الكميات الخام: مصدر كل كمية، ومصدرها الفعلي ----
+    raw_consumptions = list(
+        session.raw_consumptions.select_related(
+            'source_pallet', 'packed_pallet', 'trader', 'crop', 'cold_store', 'shelf', 'created_by'
+        ).order_by('id')
+    )
+
+    # ---- الطبالي المصدر مع أرصدتها ----
+    source_pallets = list(session.source_pallets.all())
+    source_pallet_ids = {p.id for p in source_pallets}
+
+    # ---- الكميات الخام المتبقية غير المحسومة ----
+    leftover_pallets = [p for p in source_pallets if p.remaining_box_count > 0]
+
+    # ---- الطبالي المؤهلة لتكون مصدر سحب (لإكمال طبلية موضبة من البراد) ----
+    allocatable_pallets = list(
+        Pallet.objects.filter(
+            trader_id=session.trader_id,
+            crop_id=session.crop_id,
+            status__in=[Pallet.Status.IN_COOLING, Pallet.Status.OUT_FOR_PACKING, Pallet.Status.OPEN_PARTIAL],
+            remaining_box_count__gt=0,
+        ).order_by('pallet_code')
+    )
+
+    # ---- إجابة المحاسب عند إنهاء العملية ----
+    all_packed_confirmed_by = session.all_packed_confirmed_by
+
     context = {
         'session': session,
         'box_types': box_types,
@@ -104,6 +131,15 @@ def packing_detail(request, pk):
         'packaging_charge_total': PackingService.packaging_charge_total_for_session(session),
         'packed_pallets_with_qr': packed_pallets_with_qr,
         'farm_box_types': farm_box_types,
+        'raw_consumptions': raw_consumptions,
+        'source_pallets': source_pallets,
+        'source_pallet_ids': source_pallet_ids,
+        'leftover_pallets': leftover_pallets,
+        'allocatable_pallets': allocatable_pallets,
+        'leftover_settlements': list(
+            session.leftover_settlements.select_related('pallet', 'settled_by').order_by('-settled_at')
+        ),
+        'all_packed_confirmed_by': all_packed_confirmed_by,
     }
     return render(request, 'packing/packing_detail.html', context)
 
@@ -115,7 +151,11 @@ def packing_finalize(request, pk):
     إدخال نواتج المقاسات (P1, Large, M, XL...) والهالك وإنهاء التوضيب
     """
     session = get_object_or_404(PackingSession, pk=pk)
-    if session.status in [PackingSession.Status.COMPLETED, PackingSession.Status.APPROVED]:
+    if session.status in [
+        PackingSession.Status.COMPLETED,
+        PackingSession.Status.APPROVED,
+        PackingSession.Status.PENDING_APPROVAL,
+    ]:
         messages.warning(request, 'جلسة التوضيب معتمدة ومكتملة مسبقاً.')
         return redirect('packing_detail', pk=session.pk)
 
@@ -194,15 +234,70 @@ def packing_finalize(request, pk):
                         'notes': ''
                     })
 
+            # قراءة خريطة مصادر الكميات الخام لكل سطر ناتج:
+            # من أي طبلية خام سُحبت كل كمية، وبكم صندوق.
+            # قد تُغذّى الطبلية الموضبة الواحدة من أكثر من طبلية خام،
+            # بما فيها طبلية موجودة في البراد لم تبدأ في هذه العملية.
+            alloc_output_idx = request.POST.getlist('alloc_output_idx[]')
+            alloc_pallet_ids = request.POST.getlist('alloc_pallet[]')
+            alloc_box_counts = request.POST.getlist('alloc_boxes[]')
+            has_allocations = bool(alloc_pallet_ids)
+
+            allocations = None
+            if has_allocations:
+                buckets = {}
+                for k in range(len(alloc_pallet_ids)):
+                    pallet_id = alloc_pallet_ids[k]
+                    if not pallet_id:
+                        continue
+                    try:
+                        out_idx = int(alloc_output_idx[k]) if k < len(alloc_output_idx) else 0
+                    except (TypeError, ValueError):
+                        out_idx = 0
+                    try:
+                        boxes = int(alloc_box_counts[k] or 0) if k < len(alloc_box_counts) else 0
+                    except (TypeError, ValueError):
+                        boxes = 0
+                    if boxes <= 0 or out_idx < 0 or out_idx >= len(outputs_data):
+                        continue
+                    buckets.setdefault(out_idx, []).append({
+                        'source_pallet': pallet_id,
+                        'box_count': boxes,
+                    })
+                allocations = [buckets.get(i, []) for i in range(len(outputs_data))]
+
+            # إجابة المحاسب الإلزامية عند إنهاء العملية:
+            # «هل تم توضيب جميع الكميات الخام المستخدمة في هذه العملية،
+            #  بما فيها الصناديق المسحوبة من البراد، أم ما زالت هناك كميات خام متبقية؟»
+            all_packed_answer = (request.POST.get('all_packed') or '').strip()
+            if has_allocations and not all_packed_answer:
+                raise ValidationError(
+                    "يجب الإجابة عن سؤال المحاسب: هل تم توضيب جميع الكميات الخام المستخدمة في هذه "
+                    "العملية، بما فيها الصناديق المسحوبة من البراد، أم ما زالت هناك كميات خام متبقية؟"
+                )
+            all_packed = None
+            if all_packed_answer in ('yes', 'no'):
+                all_packed = (all_packed_answer == 'yes')
+            elif all_packed_answer:
+                raise ValidationError("إجابة غير معروفة لسؤال المحاسب حول توضيب الكميات الخام.")
+
             PackingService.record_outputs_and_finalize(
                 session=session,
                 outputs_data=outputs_data,
                 wastes_data=wastes_data,
                 farm_empty_items=farm_empty_items,
+                allocations=allocations,
+                all_packed=all_packed,
                 user=request.user
             )
 
-            if session.requires_manager_approval:
+            if session.status == PackingSession.Status.INCOMPLETE:
+                msg = (
+                    f'تم تسجيل النواتج. العملية ما زالت مفتوحة: '
+                    f'تبقّى خام غير موضب — استكمل التوضيب أو سجّل تسوية معتمدة لمصيره.'
+                )
+                messages.warning(request, msg)
+            elif session.requires_manager_approval:
                 msg = f'تم تسجيل النواتج ولكن يوجد فرق وزن غير مفسر ({session.unexplained_diff_kg} كغ). الجلسة تتطلب اعتماد المدير.'
                 messages.warning(request, msg)
             else:
@@ -223,6 +318,108 @@ def packing_finalize(request, pk):
             messages.error(request, msg)
             if is_ajax(request):
                 return ajax_response(ok=False, message=msg)
+
+    return redirect('packing_detail', pk=session.pk)
+
+
+@login_required
+@accountant_required
+def packing_add_raw(request, pk):
+    """
+    إضافة طبالي خام جديدة إلى عملية توضيب مفتوحة:
+    تُستدعى عند وجود كميات خام متبقية ولم تكتمل العملية بعد.
+    """
+    session = get_object_or_404(PackingSession, pk=pk)
+    if session.is_closed:
+        messages.warning(request, 'لا يمكن إضافة خام جديد إلى عملية توضيب مغلقة. افتح دفعة توضيب جديدة.')
+        return redirect('packing_detail', pk=session.pk)
+
+    if request.method == 'POST':
+        pallet_ids = request.POST.getlist('pallet_ids[]')
+        pallets = Pallet.objects.filter(id__in=[p for p in pallet_ids if p])
+        try:
+            added = PackingService.add_raw_pallets_to_session(
+                session=session, pallets=pallets, user=request.user
+            )
+            if added:
+                msg = (
+                    f'تمت إضافة {len(added)} طبلية خام إلى العملية: '
+                    f'{"، ".join(p.pallet_code for p in added)}.'
+                )
+                messages.success(request, msg)
+            else:
+                msg = 'لا توجد طبالي جديدة لإضافتها (الطبالي المختارة مرتبطة بالفعل بالعملية).'
+                messages.warning(request, msg)
+        except ValidationError as e:
+            msg = ' '.join(e.messages) if e.messages else str(e)
+            messages.error(request, msg)
+        return redirect('packing_detail', pk=session.pk)
+
+    candidates = Pallet.objects.filter(
+        trader_id=session.trader_id,
+        crop_id=session.crop_id,
+        status__in=[Pallet.Status.IN_COOLING, Pallet.Status.OPEN_PARTIAL],
+    ).exclude(id__in=session.source_pallets.values_list('id', flat=True)).order_by('pallet_code')
+
+    return render(request, 'packing/packing_add_raw.html', {
+        'session': session,
+        'candidates': candidates,
+    })
+
+
+@login_required
+@accountant_required
+def packing_settle_leftovers(request, pk):
+    """
+    تسوية الكميات الخام المتبقية (إعادة للبراد أو تسوية/إتلاف معتمد)
+    قبل إغلاق عملية التوضيب.
+    """
+    session = get_object_or_404(PackingSession, pk=pk)
+    if session.is_closed:
+        messages.warning(request, 'عملية التوضيب مغلقة، لا حاجة لتسوية كميات متبقية.')
+        return redirect('packing_detail', pk=session.pk)
+
+    if request.method == 'POST':
+        pallet_id = request.POST.get('pallet')
+        resolution = request.POST.get('resolution')
+        notes = request.POST.get('notes', '')
+        try:
+            PackingService.settle_leftovers(
+                session=session,
+                items=[{'pallet': pallet_id, 'resolution': resolution, 'notes': notes}],
+                user=request.user,
+            )
+            messages.success(request, 'تم تسجيل تسوية الكمية الخام المتبقية بنجاح.')
+        except ValidationError as e:
+            msg = ' '.join(e.messages) if e.messages else str(e)
+            messages.error(request, msg)
+        return redirect('packing_detail', pk=session.pk)
+
+    leftover_pallets = [p for p in session.source_pallets.all() if p.remaining_box_count > 0]
+    return render(request, 'packing/packing_settle_leftovers.html', {
+        'session': session,
+        'leftover_pallets': leftover_pallets,
+    })
+
+
+@login_required
+@accountant_required
+def packing_close(request, pk):
+    """
+    إغلاق عملية التوضيب بعد معالجة كل الكميات الخام المتبقية.
+    """
+    session = get_object_or_404(PackingSession, pk=pk)
+    if request.method == 'POST':
+        notes = request.POST.get('notes', '')
+        try:
+            PackingService.close_session(session, user=request.user, notes=notes)
+            messages.success(request, f'تم إغلاق عملية التوضيب {session.session_code} بنجاح.')
+        except ValidationError as e:
+            msg = ' '.join(e.messages) if e.messages else str(e)
+            messages.error(request, msg)
+        except Exception as e:  # noqa: BLE001
+            messages.error(request, f'خطأ أثناء إغلاق العملية: {str(e)}')
+        return redirect('packing_detail', pk=session.pk)
 
     return redirect('packing_detail', pk=session.pk)
 

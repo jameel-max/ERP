@@ -644,6 +644,7 @@ class Pallet(models.Model):
     class Status(models.TextChoices):
         IN_COOLING = 'IN_COOLING', 'في البراد'
         OUT_FOR_PACKING = 'OUT_FOR_PACKING', 'خرجت للتوضيب'
+        OPEN_PARTIAL = 'OPEN_PARTIAL', 'مفتوحة (خام متبقٍ)'
         PACKED = 'PACKED', 'موضبة'
         DELIVERED = 'DELIVERED', 'مسلّمة'
 
@@ -684,6 +685,14 @@ class Pallet(models.Model):
     box_count = models.PositiveIntegerField(
         default=0,
         verbose_name='عدد الصناديق على الطبلية'
+    )
+    consumed_box_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name='عدد الصناديق المستهلكة من الطبلية'
+    )
+    remaining_box_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name='رصيد الصناديق المتبقي في الطبلية'
     )
     estimated_net_weight = models.DecimalField(
         max_digits=10,
@@ -737,6 +746,33 @@ class Pallet(models.Model):
     def __str__(self):
         return f"{self.pallet_code} ({self.trader.name} - {self.crop.name})"
 
+    def save(self, *args, **kwargs):
+        """
+        عند إنشاء طبلية جديدة يُهيَّأ رصيد الصناديق المتبقي بعدد صناديقها،
+        ما لم يكن قد حُدِّد صراحةً (يبقى الرصيد كما هو عند التعديل).
+        """
+        if self._state.adding and not self.remaining_box_count and self.box_count:
+            self.remaining_box_count = self.box_count
+        super().save(*args, **kwargs)
+
+    @property
+    def is_open(self):
+        """هل بقيت في الطبلية صناديق خام لم تُستهلك بعد؟"""
+        return self.remaining_box_count > 0
+
+    @property
+    def is_fully_consumed(self):
+        """هل استُهلكت الطبلية بالكامل؟"""
+        return self.remaining_box_count <= 0
+
+    @property
+    def consumed_ratio(self):
+        """نسبة ما استُهلك من صناديق الطبلية (0..1) — تُستخدم لتوزيع الوزن تقديرياً."""
+        if not self.box_count:
+            return Decimal('0')
+        used = min(self.consumed_box_count, self.box_count)
+        return (Decimal(used) / Decimal(self.box_count)).quantize(Decimal('0.000001'))
+
     @property
     def days_in_cooling(self):
         """
@@ -780,6 +816,8 @@ class Pallet(models.Model):
             "crop": self.crop.name,
             "box_type": str(self.box_type),
             "box_count": self.box_count,
+            "consumed_box_count": self.consumed_box_count,
+            "remaining_box_count": self.remaining_box_count,
             "net_weight_kg": str(self.estimated_net_weight),
             "arrival_date": str(self.truck_receipt.arrival_date),
             "truck_plate": self.truck_receipt.truck_plate or "غير مسجل",

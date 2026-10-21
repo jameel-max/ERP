@@ -6,11 +6,17 @@ from datetime import timedelta
 from django.utils import timezone
 
 from core.models import User, SystemSetting, Notification
-from operations.models import Trader, Crop, BoxType, ColdStore, Shelf, TruckReceipt, Pallet, TraderPackingRate
+from operations.models import (
+    Trader, Crop, BoxType, ColdStore, Shelf, TruckReceipt, Pallet, TraderPackingRate,
+    PalletMovementLog,
+)
 from operations.services import ReceptionService
 from boxes.models import TraderBoxBalance, TraderBoxTransaction, FarmBoxType
 from boxes.services import BoxService
-from packing.models import PackingSession, PackedPallet, PackedPalletCoolingLog, DeliveryNote
+from packing.models import (
+    PackingSession, PackedPallet, PackedPalletCoolingLog, DeliveryNote,
+    PackingRawConsumption, PackingLeftoverSettlement,
+)
 from packing.services import PackingService
 from invoicing.models import Invoice, InvoiceItem
 from invoicing.services import InvoiceService
@@ -717,12 +723,13 @@ class Phase2ComprehensiveTests(TestCase):
         self.assertEqual(cooling_items.count(), 1)
         self.assertEqual(cooling_items.first().quantity, Decimal('4.000'))
 
-    # ==================== رقابة عدد المقاسات مقابل عدد الطبالي ====================
+    # ==================== فصل عدد الطبالي الخام عن عدد الطبالي الموضبة ====================
 
-    def test_output_rows_cannot_exceed_available_pallets(self):
+    def test_output_rows_may_exceed_available_pallets(self):
         """
-        رقابة: لا يجوز أن يتجاوز عدد أسطر نواتج المقاسات (كل سطر = طبلية موضبة واحدة)
-        عدد طبالي الاستلام المتاحة في الجلسة، ويرفض الحفظ بتراجع كامل.
+        تصحيح المنطق: عدد طبالي الخام لا يساوي عدد طبالي المنتج الموضب.
+        ٤ طبالي خام قد تنتج طبالي موضبة أكثر، والعكس ممكن أيضاً.
+        فلا يُرفض الإدخال لمجرد تجاوز عدد الأسطر عدد الطبالي الخام.
         """
         session = PackingService.start_packing_session(
             trader=self.trader1,
@@ -738,13 +745,11 @@ class Phase2ComprehensiveTests(TestCase):
             {'size_name': 'L', 'box_type': self.box_blue, 'box_count': 10, 'net_weight_kg': Decimal('50.000'), 'pallet_count': 1},
             {'size_name': 'M', 'box_type': self.box_blue, 'box_count': 10, 'net_weight_kg': Decimal('50.000'), 'pallet_count': 1},
         ]
-        with self.assertRaises(ValidationError):
-            PackingService.record_outputs_and_finalize(session, over_data, user=self.accountant)
+        PackingService.record_outputs_and_finalize(session, over_data, user=self.accountant)
 
         session.refresh_from_db()
-        self.assertEqual(session.outputs.count(), 0)
-        self.assertEqual(session.packed_pallets.count(), 0)
-        self.assertEqual(session.status, PackingSession.Status.DRAFT)
+        self.assertEqual(session.outputs.count(), 3)
+        self.assertEqual(session.packed_pallets.count(), 3)
 
     def test_output_rows_equal_to_available_pallets_is_allowed(self):
         """
@@ -767,9 +772,10 @@ class Phase2ComprehensiveTests(TestCase):
         self.assertEqual(session.outputs.count(), 2)
         self.assertEqual(session.packed_pallets.count(), 2)
 
-    def test_packing_finalize_view_rejects_rows_more_than_pallets(self):
+    def test_packing_finalize_view_allows_rows_more_than_pallets(self):
         """
-        عند إدخال مقاسات أكثر من الطبالي المتاحة لا تُحفظ أي طبلية موضبة وتبقى الجلسة قيد العمل.
+        تصحيح المنطق: عدد أسطر النواتج (الطبالي الموضبة) غير مرتبط بعدد الطبالي الخام.
+        فإدخال ٣ مقاسات من طبالي خام اثنتين يجب أن يُحفظ ويُنتج ٣ طبالي موضبة.
         """
         session = PackingService.start_packing_session(
             trader=self.trader1,
@@ -791,9 +797,8 @@ class Phase2ComprehensiveTests(TestCase):
         self.assertEqual(resp.status_code, 302)
 
         session.refresh_from_db()
-        self.assertEqual(session.outputs.count(), 0)
-        self.assertEqual(session.packed_pallets.count(), 0)
-        self.assertEqual(session.status, PackingSession.Status.DRAFT)
+        self.assertEqual(session.outputs.count(), 3)
+        self.assertEqual(session.packed_pallets.count(), 3)
 
     def test_resubmitting_finalize_cannot_exceed_available_pallets(self):
         """
@@ -1171,5 +1176,528 @@ class PackagingItemsChargeTests(TestCase):
         self.assertEqual(cons.count(), 1)
         self.assertEqual(cons.first().quantity, 12)
         self.assertEqual(EmptyBoxService.consumed_in_packing(self.farm_box.pk), 12)
+
+
+# =============================================================================
+# تصحيح منطق التوضيب:
+#   فصل عدد طبالي الخام عن عدد طبالي المنتج الموضب
+#   + دفتر الكميات الخام (مصدر كل كمية وموقع صرفها)
+#   + سؤال المحاسب الإلزامي عند إنهاء العملية
+# =============================================================================
+
+
+class PackingQuantityLedgerTests(TestCase):
+    """
+    اختبارات منطق الكميات الجديد (تُثبت المتطلبات السبعة):
+
+    1) ٤ طبالي خام يمكن أن تنتج طباليتين موضبتين دون افتراض طبلية موضبة لكل طبلية خام.
+    2) إمكانية إكمال طبلية موضبة بصناديق من طبلية أخرى في البراد.
+    3) بقاء الصناديق غير المستخدمة في رصيد الطبلية الأصلية.
+    4) صحة أرصدة كل مصدر بعد سحب الصناديق.
+    5) منع تجاوز الرصيد أو تكرار الصرف.
+    6) منع إغلاق العملية مع وجود كميات غير محسومة.
+    7) منع إدخال خام جديد إلى دفعة مغلقة.
+    """
+
+    def setUp(self):
+        self.settings = SystemSetting.get_settings()
+        self.settings.company_name_en = 'Royal Fruit'
+        # حد سماح واسع: هذه الاختبارات تركز على منطق الكميات لا على فرق الوزن
+        self.settings.weight_tolerance_pct = Decimal('100.00')
+        self.settings.save()
+
+        self.manager = User.objects.create_user(
+            username='qty_manager', password='pass', role=User.Role.MANAGER
+        )
+        self.accountant = User.objects.create_user(
+            username='qty_accountant', password='pass', role=User.Role.ACCOUNTANT
+        )
+
+        self.trader = Trader.objects.create(code='T100', name='تاجر الكميات')
+        self.crop = Crop.objects.create(name='فواكه')
+        self.box = BoxType.objects.create(
+            name='صندوق تعبئة',
+            color_or_type='أزرق',
+            tare_weight=Decimal('0.800'),
+            discount_price=Decimal('1.500'),
+            company_stock=1000,
+        )
+        self.farm_box = FarmBoxType.objects.create(
+            name='صندوق مزرعة',
+            description='أزرق',
+            tare_weight=Decimal('0.800'),
+        )
+        self.cold_store = ColdStore.objects.create(name='براد الكميات', code='CS-Q1', capacity_pallets=50)
+        self.shelf = Shelf.objects.create(cold_store=self.cold_store, shelf_number='1', capacity_pallets=25)
+
+        # سيارة واحدة بـ ٢٠٠ صندوق موزّعة على ٤ طبالي (٥٠ صندوقاً لكل طبلية)
+        self.truck = ReceptionService.process_truck_reception({
+            'trader': self.trader.id,
+            'crop': self.crop.id,
+            'box_type': self.farm_box.id,
+            'box_count': 200,
+            'gross_weight': Decimal('4000.000'),
+            'tare_weight': Decimal('2000.000'),
+            'pallet_count': 4,
+            'cold_store': self.cold_store.id,
+            'shelf': self.shelf.id,
+        }, user=self.accountant)
+        self.pallets = list(self.truck.pallets.order_by('id'))
+        self.assertEqual(len(self.pallets), 4)
+        for p in self.pallets:
+            self.assertEqual(p.box_count, 50)
+            self.assertEqual(p.remaining_box_count, 50)
+            self.assertEqual(p.estimated_net_weight, Decimal('450.000'))
+
+    # ---------------- أدوات مساعدة ----------------
+
+    def _start_session(self, source_pallets):
+        return PackingService.start_packing_session(
+            trader=self.trader,
+            crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=list(source_pallets),
+            user=self.accountant,
+        )
+
+    def _output(self, size_name='XL', boxes=10, weight='100.000'):
+        return {
+            'size_name': size_name,
+            'box_type': self.box,
+            'box_count': boxes,
+            'net_weight_kg': Decimal(weight),
+            'pallet_count': 1,
+        }
+
+    def _extra_cold_store_pallet(self):
+        """طبلية خام ما زالت في البراد (لم تدخل أي جلسة توضيب)."""
+        truck2 = ReceptionService.process_truck_reception({
+            'trader': self.trader.id,
+            'crop': self.crop.id,
+            'box_type': self.farm_box.id,
+            'box_count': 50,
+            'gross_weight': Decimal('1000.000'),
+            'tare_weight': Decimal('500.000'),
+            'pallet_count': 1,
+            'cold_store': self.cold_store.id,
+            'shelf': self.shelf.id,
+        }, user=self.accountant)
+        return truck2.pallets.first()
+
+    # ---------------- 1) فصل عدد الطبالي ----------------
+
+    def test_four_raw_pallets_can_produce_two_packed_pallets(self):
+        """
+        ٤ طبالي خام تُنتج طباليتين موضبتين: لا افتراض بوجود طبلية موضبة مقابل كل طبلية خام،
+        ولا استنتاج عدد الطبالي المستهلكة من الفرق بين العددين.
+        """
+        session = self._start_session(self.pallets)
+        self.assertEqual(session.source_pallets.count(), 4)
+
+        outputs = [self._output('XL'), self._output('L')]
+        allocations = [
+            [
+                {'source_pallet': self.pallets[0].id, 'box_count': 40},
+                {'source_pallet': self.pallets[1].id, 'box_count': 30},
+            ],
+            [
+                {'source_pallet': self.pallets[2].id, 'box_count': 45},
+                {'source_pallet': self.pallets[3].id, 'box_count': 20},
+            ],
+        ]
+        PackingService.record_outputs_and_finalize(
+            session, outputs, allocations=allocations, all_packed=False, user=self.accountant
+        )
+        session.refresh_from_db()
+
+        # طبلتان موضبتان فقط من أربع طبالي خام
+        self.assertEqual(session.packed_pallets.count(), 2)
+        self.assertEqual(session.source_pallets.count(), 4)
+        # كل طبلية موضبة لها مصدران فعليان مسجّلان
+        for packed in session.packed_pallets.all():
+            self.assertEqual(packed.raw_consumptions.count(), 2)
+        # ليست الطبالي مستهلكة بالكامل → العملية تبقى مفتوحة
+        self.assertEqual(session.status, PackingSession.Status.INCOMPLETE)
+        self.assertFalse(session.all_packed_confirmed)
+        # وزن الداخل محسوب من السحوبات الموثّقة (لا من عدد الطبالي)
+        expected_input = (
+            Decimal('450.000') * Decimal(40) / Decimal(50)
+            + Decimal('450.000') * Decimal(30) / Decimal(50)
+            + Decimal('450.000') * Decimal(45) / Decimal(50)
+            + Decimal('450.000') * Decimal(20) / Decimal(50)
+        ).quantize(Decimal('0.001'))
+        self.assertEqual(session.input_weight_kg, expected_input)
+
+    # ---------------- 2) إكمال طبلية موضبة من طبلية في البراد ----------------
+
+    def test_packed_pallet_can_be_completed_from_another_pallet_in_cold_store(self):
+        """
+        أخذ صناديق ناقصة من طبلية خام موجودة في البراد لإكمال طبلية موضبة،
+        مع تسجيل مصدر الكمية وموقعها وصرفها من رصيدها المتاح فقط.
+        """
+        session = self._start_session([self.pallets[0]])
+        store_pallet = self._extra_cold_store_pallet()
+        self.assertEqual(store_pallet.status, Pallet.Status.IN_COOLING)
+
+        outputs = [self._output('XL')]
+        allocations = [[
+            {'source_pallet': self.pallets[0].id, 'box_count': 30},
+            {'source_pallet': store_pallet.id, 'box_count': 20},
+        ]]
+        PackingService.record_outputs_and_finalize(
+            session, outputs, allocations=allocations, all_packed=False, user=self.accountant
+        )
+        session.refresh_from_db()
+
+        # الطبلية المسحوبة من البراد أصبحت ضمن طبالي مصدر العملية
+        self.assertIn(store_pallet.id, list(session.source_pallets.values_list('id', flat=True)))
+        store_pallet.refresh_from_db()
+        self.assertEqual(store_pallet.consumed_box_count, 20)
+        self.assertEqual(store_pallet.remaining_box_count, 30)
+        self.assertEqual(store_pallet.status, Pallet.Status.OPEN_PARTIAL)
+
+        # حركة صرف من موقع التخزين موثّقة
+        movement = PalletMovementLog.objects.filter(
+            pallet=store_pallet, movement_type='TO_PACKING'
+        ).order_by('-id').first()
+        self.assertIsNotNone(movement)
+        self.assertEqual(movement.from_cold_store_id, self.cold_store.id)
+
+        # سطر في دفتر الكميات الخام يربط المصدر بالطبلية الموضبة
+        cons = session.raw_consumptions.filter(source_pallet=store_pallet).first()
+        self.assertIsNotNone(cons)
+        self.assertEqual(cons.box_count, 20)
+        self.assertEqual(cons.packed_pallet_id, session.packed_pallets.first().id)
+        self.assertEqual(cons.cold_store_id, self.cold_store.id)
+        self.assertIsNotNone(cons.movement_id)
+
+    # ---------------- 3) بقاء الصناديق غير المستخدمة ----------------
+
+    def test_unused_boxes_remain_in_source_pallet_balance(self):
+        """
+        سحب جزء من طبلية خام لا يعني استهلاكها بالكامل:
+        يبقى الباقي في رصيدها ولا تُعتبر مستهلكة.
+        """
+        session = self._start_session([self.pallets[0]])
+        PackingService.record_outputs_and_finalize(
+            session, [self._output()],
+            allocations=[[{'source_pallet': self.pallets[0].id, 'box_count': 10}]],
+            all_packed=False, user=self.accountant,
+        )
+        pallet = Pallet.objects.get(pk=self.pallets[0].id)
+        self.assertEqual(pallet.consumed_box_count, 10)
+        self.assertEqual(pallet.remaining_box_count, 40)
+        self.assertEqual(pallet.status, Pallet.Status.OPEN_PARTIAL)
+        self.assertNotEqual(pallet.status, Pallet.Status.PACKED)
+
+        session.refresh_from_db()
+        self.assertEqual(session.status, PackingSession.Status.INCOMPLETE)
+        self.assertEqual(len(session.leftover_pallets), 1)
+        self.assertEqual(session.leftover_box_count, 40)
+
+    # ---------------- 4) صحة أرصدة كل مصدر ----------------
+
+    def test_each_source_pallet_balance_is_correct_after_drawing(self):
+        """
+        صحة أرصدة كل مصدر بعد سحب الصناديق: المستهلَك + المتبقي = أصل الطبلية.
+        """
+        session = self._start_session(self.pallets)
+        outputs = [self._output('XL'), self._output('L')]
+        allocations = [
+            [
+                {'source_pallet': self.pallets[0].id, 'box_count': 40},
+                {'source_pallet': self.pallets[1].id, 'box_count': 30},
+            ],
+            [
+                {'source_pallet': self.pallets[2].id, 'box_count': 45},
+                {'source_pallet': self.pallets[3].id, 'box_count': 20},
+            ],
+        ]
+        PackingService.record_outputs_and_finalize(
+            session, outputs, allocations=allocations, all_packed=False, user=self.accountant
+        )
+        for pallet, used in zip(self.pallets, [40, 30, 45, 20]):
+            pallet.refresh_from_db()
+            self.assertEqual(pallet.consumed_box_count, used)
+            self.assertEqual(pallet.remaining_box_count, 50 - used)
+            self.assertEqual(pallet.consumed_box_count + pallet.remaining_box_count, pallet.box_count)
+
+        # مجموع ما سُحب = مجموع الاستهلاك في الدفتر
+        self.assertEqual(sum(c.box_count for c in session.raw_consumptions.all()), 135)
+        # ملخص الدفتر يغطي كل الطبالي الأربع
+        self.assertEqual(session.raw_consumptions.count(), 4)
+        self.assertEqual(
+            set(c.source_pallet_id for c in session.raw_consumptions.all()),
+            set(p.id for p in self.pallets),
+        )
+
+    # ---------------- 5) منع تجاوز الرصيد وتكرار الصرف ----------------
+
+    def test_cannot_exceed_available_balance(self):
+        session = self._start_session([self.pallets[0]])
+        with self.assertRaises(ValidationError):
+            PackingService.record_outputs_and_finalize(
+                session, [self._output(boxes=5)],
+                allocations=[[{'source_pallet': self.pallets[0].id, 'box_count': 60}]],
+                all_packed=True, user=self.accountant,
+            )
+        session.refresh_from_db()
+        self.assertEqual(session.packed_pallets.count(), 0)
+        self.assertEqual(session.raw_consumptions.count(), 0)
+        pallet = Pallet.objects.get(pk=self.pallets[0].id)
+        self.assertEqual(pallet.remaining_box_count, 50)
+        self.assertEqual(pallet.consumed_box_count, 0)
+
+    def test_same_boxes_cannot_be_issued_twice(self):
+        """نفس الصناديق لا تُصرف مرتين على نواتج مختلفة."""
+        session = self._start_session([self.pallets[0]])
+        with self.assertRaises(ValidationError):
+            PackingService.record_outputs_and_finalize(
+                session, [self._output('XL'), self._output('L')],
+                allocations=[
+                    [{'source_pallet': self.pallets[0].id, 'box_count': 30}],
+                    [{'source_pallet': self.pallets[0].id, 'box_count': 30}],
+                ],
+                all_packed=True, user=self.accountant,
+            )
+        session.refresh_from_db()
+        self.assertEqual(session.raw_consumptions.count(), 0)
+        pallet = Pallet.objects.get(pk=self.pallets[0].id)
+        self.assertEqual(pallet.consumed_box_count, 0)
+        self.assertEqual(pallet.remaining_box_count, 50)
+
+    def test_each_output_row_must_declare_its_raw_source(self):
+        """كل سطر ناتج يجب أن يبيّن مصدر كميته الخام."""
+        session = self._start_session([self.pallets[0]])
+        with self.assertRaises(ValidationError):
+            PackingService.record_outputs_and_finalize(
+                session, [self._output()], allocations=[[]], all_packed=True, user=self.accountant,
+            )
+
+    def test_cannot_draw_from_pallet_of_another_trader_or_crop(self):
+        """لا يُسمح بخلط أصناف أو تشغيلات غير متوافقة."""
+        other_trader = Trader.objects.create(code='T200', name='تاجر آخر')
+        other_truck = ReceptionService.process_truck_reception({
+            'trader': other_trader.id,
+            'crop': self.crop.id,
+            'box_type': self.farm_box.id,
+            'box_count': 50,
+            'gross_weight': Decimal('1000.000'),
+            'tare_weight': Decimal('500.000'),
+            'pallet_count': 1,
+            'cold_store': self.cold_store.id,
+            'shelf': self.shelf.id,
+        }, user=self.accountant)
+        other_pallet = other_truck.pallets.first()
+
+        session = self._start_session([self.pallets[0]])
+        with self.assertRaises(ValidationError):
+            PackingService.record_outputs_and_finalize(
+                session, [self._output()],
+                allocations=[[{'source_pallet': other_pallet.id, 'box_count': 10}]],
+                all_packed=True, user=self.accountant,
+            )
+
+    # ---------------- 6) منع الإغلاق مع كميات غير محسومة ----------------
+
+    def test_cannot_close_session_with_unresolved_leftovers(self):
+        """
+        لا يجوز الإغلاق ما دام في طبلية خام متبقٍ لم يُحدَّد مصيره،
+        ولا قبل تسجيل تسوية معتمدة.
+        """
+        session = self._start_session([self.pallets[0]])
+
+        # الإجابة «نعم» مع بقاء خام ⇒ رفض
+        with self.assertRaises(ValidationError):
+            PackingService.record_outputs_and_finalize(
+                session, [self._output()],
+                allocations=[[{'source_pallet': self.pallets[0].id, 'box_count': 10}]],
+                all_packed=True, user=self.accountant,
+            )
+        session.refresh_from_db()
+        self.assertEqual(session.status, PackingSession.Status.DRAFT)
+        self.assertFalse(session.all_packed_confirmed)
+        self.assertEqual(session.packed_pallets.count(), 0)
+
+        # الإجابة «لا» ⇒ العملية تبقى مفتوحة (توضيب غير مكتمل)
+        PackingService.record_outputs_and_finalize(
+            session, [self._output()],
+            allocations=[[{'source_pallet': self.pallets[0].id, 'box_count': 10}]],
+            all_packed=False, user=self.accountant,
+        )
+        session.refresh_from_db()
+        self.assertEqual(session.status, PackingSession.Status.INCOMPLETE)
+
+        # لا يمكن الإغلاق قبل معالجة المتبقي
+        with self.assertRaises(ValidationError):
+            PackingService.close_session(session, user=self.accountant)
+
+        # بعد تسجيل تسوية معتمدة يمكن الإغلاق
+        PackingService.settle_leftovers(
+            session,
+            [{'pallet': self.pallets[0].id, 'resolution': 'WRITE_OFF', 'notes': 'تالف أثناء الفرز'}],
+            user=self.accountant,
+        )
+        PackingService.close_session(session, user=self.accountant)
+        session.refresh_from_db()
+        self.assertEqual(session.status, PackingSession.Status.COMPLETED)
+        self.assertTrue(session.all_packed_confirmed)
+        self.assertIsNotNone(session.all_packed_confirmed_by)
+        self.assertIsNotNone(session.all_packed_confirmed_at)
+        self.assertEqual(session.leftover_settlements.count(), 1)
+
+    def test_settling_leftovers_back_to_store_keeps_inventory(self):
+        """إعادة الباقي للبراد تُبقيه مخزوناً ولا تُنشئ قيوداً مالية."""
+        session = self._start_session([self.pallets[0]])
+        PackingService.record_outputs_and_finalize(
+            session, [self._output()],
+            allocations=[[{'source_pallet': self.pallets[0].id, 'box_count': 10}]],
+            all_packed=False, user=self.accountant,
+        )
+        PackingService.settle_leftovers(
+            session,
+            [{'pallet': self.pallets[0].id, 'resolution': 'RETURN_TO_STORE', 'notes': 'إعادة للمخزون'}],
+            user=self.accountant,
+        )
+        pallet = Pallet.objects.get(pk=self.pallets[0].id)
+        self.assertEqual(pallet.status, Pallet.Status.IN_COOLING)
+        self.assertEqual(pallet.remaining_box_count, 40)
+        settlement = session.leftover_settlements.first()
+        self.assertEqual(settlement.resolution, PackingLeftoverSettlement.Resolution.RETURN_TO_STORE)
+        self.assertEqual(settlement.box_count, 40)
+
+    # ---------------- 7) منع إدخال خام جديد إلى دفعة مغلقة ----------------
+
+    def test_cannot_add_raw_material_to_closed_session(self):
+        session = self._start_session([self.pallets[0]])
+        PackingService.record_outputs_and_finalize(
+            session, [self._output()],
+            allocations=[[{'source_pallet': self.pallets[0].id, 'box_count': 50}]],
+            all_packed=True, user=self.accountant,
+        )
+        session.refresh_from_db()
+        self.assertEqual(session.status, PackingSession.Status.COMPLETED)
+
+        # لا يمكن إضافة طبالي خام جديدة
+        with self.assertRaises(ValidationError):
+            PackingService.add_raw_pallets_to_session(
+                session, [self.pallets[1]], user=self.accountant
+            )
+        # ولا يمكن إدخال نواتج جديدة
+        with self.assertRaises(ValidationError):
+            PackingService.record_outputs_and_finalize(
+                session, [self._output('M')],
+                allocations=[[{'source_pallet': self.pallets[1].id, 'box_count': 10}]],
+                all_packed=True, user=self.accountant,
+            )
+        session.refresh_from_db()
+        self.assertEqual(session.source_pallets.count(), 1)
+        self.assertEqual(session.packed_pallets.count(), 1)
+
+    def test_can_add_raw_pallets_to_open_session(self):
+        """العملية المفتوحة تقبل إضافة طبالي خام من البراد مع حركة إخراج موثّقة."""
+        session = self._start_session([self.pallets[0]])
+        added = PackingService.add_raw_pallets_to_session(
+            session, [self.pallets[1]], user=self.accountant
+        )
+        self.assertEqual(len(added), 1)
+        session.refresh_from_db()
+        self.assertEqual(session.source_pallets.count(), 2)
+        pallet = Pallet.objects.get(pk=self.pallets[1].id)
+        self.assertEqual(pallet.status, Pallet.Status.OUT_FOR_PACKING)
+        self.assertTrue(
+            PalletMovementLog.objects.filter(pallet=pallet, movement_type='TO_PACKING').exists()
+        )
+
+    # ---------------- سؤال المحاسب الإلزامي في الواجهة ----------------
+
+    def test_finalize_view_requires_accountant_answer(self):
+        session = self._start_session([self.pallets[0]])
+        client = Client()
+        client.force_login(self.accountant)
+        resp = client.post(reverse('packing_finalize', args=[session.pk]), {
+            'size_name[]': ['XL'],
+            'box_type[]': [str(self.box.id)],
+            'box_count[]': ['10'],
+            'net_weight_kg[]': ['100.000'],
+            'alloc_output_idx[]': ['0'],
+            'alloc_pallet[]': [str(self.pallets[0].id)],
+            'alloc_boxes[]': ['10'],
+            # بدون إجابة المحاسب
+        })
+        session.refresh_from_db()
+        self.assertEqual(session.packed_pallets.count(), 0)
+        stored = [str(m) for m in resp.wsgi_request._messages]
+        self.assertTrue(any('سؤال المحاسب' in m for m in stored))
+
+    def test_finalize_view_answer_no_keeps_session_open(self):
+        session = self._start_session([self.pallets[0]])
+        client = Client()
+        client.force_login(self.accountant)
+        resp = client.post(reverse('packing_finalize', args=[session.pk]), {
+            'size_name[]': ['XL'],
+            'box_type[]': [str(self.box.id)],
+            'box_count[]': ['10'],
+            'net_weight_kg[]': ['100.000'],
+            'alloc_output_idx[]': ['0'],
+            'alloc_pallet[]': [str(self.pallets[0].id)],
+            'alloc_boxes[]': ['10'],
+            'all_packed': 'no',
+        })
+        self.assertEqual(resp.status_code, 302)
+        session.refresh_from_db()
+        self.assertEqual(session.status, PackingSession.Status.INCOMPLETE)
+        self.assertEqual(session.packed_pallets.count(), 1)
+        self.assertEqual(session.raw_consumptions.count(), 1)
+        self.assertEqual(session.raw_consumptions.first().box_count, 10)
+
+    def test_finalize_view_answer_yes_rejects_leftovers(self):
+        session = self._start_session([self.pallets[0]])
+        client = Client()
+        client.force_login(self.accountant)
+        resp = client.post(reverse('packing_finalize', args=[session.pk]), {
+            'size_name[]': ['XL'],
+            'box_type[]': [str(self.box.id)],
+            'box_count[]': ['10'],
+            'net_weight_kg[]': ['100.000'],
+            'alloc_output_idx[]': ['0'],
+            'alloc_pallet[]': [str(self.pallets[0].id)],
+            'alloc_boxes[]': ['10'],
+            'all_packed': 'yes',
+        })
+        self.assertEqual(resp.status_code, 302)
+        session.refresh_from_db()
+        self.assertEqual(session.packed_pallets.count(), 0)
+        stored = [str(m) for m in resp.wsgi_request._messages]
+        self.assertTrue(any('كميات خام متبقية' in m for m in stored))
+
+    # ---------------- دفتر التدقيق ----------------
+
+    def test_audit_log_records_sources_and_confirmation(self):
+        session = self._start_session([self.pallets[0]])
+        PackingService.record_outputs_and_finalize(
+            session, [self._output()],
+            allocations=[[{'source_pallet': self.pallets[0].id, 'box_count': 10}]],
+            all_packed=False, user=self.accountant,
+        )
+        from core.models import AuditLog
+        actions = list(AuditLog.objects.filter(model_name='PackingSession').values_list('action', flat=True))
+        self.assertIn('FINALIZE_PACKING_SESSION', actions)
+
+    def test_reversing_session_restores_pallet_balances(self):
+        """حذف عملية التوضيب يعيد أرصدة الطبالي كما كانت."""
+        session = self._start_session([self.pallets[0]])
+        PackingService.record_outputs_and_finalize(
+            session, [self._output()],
+            allocations=[[{'source_pallet': self.pallets[0].id, 'box_count': 10}]],
+            all_packed=False, user=self.accountant,
+        )
+        pallet = Pallet.objects.get(pk=self.pallets[0].id)
+        self.assertEqual(pallet.remaining_box_count, 40)
+
+        session.delete()
+        pallet.refresh_from_db()
+        self.assertEqual(pallet.remaining_box_count, 50)
+        self.assertEqual(pallet.consumed_box_count, 0)
 
 

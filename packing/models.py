@@ -36,6 +36,7 @@ class PackingSession(models.Model):
     """
     class Status(models.TextChoices):
         DRAFT = 'DRAFT', 'قيد العمل'
+        INCOMPLETE = 'INCOMPLETE', 'توضيب غير مكتمل (خام متبقٍ)'
         PENDING_APPROVAL = 'PENDING_APPROVAL', 'بانتظار اعتماد المدير (فرق وزن/تجاوز حد سماح)'
         APPROVED = 'APPROVED', 'معتمدة'
         COMPLETED = 'COMPLETED', 'مكتملة وموضبة'
@@ -152,10 +153,61 @@ class PackingSession(models.Model):
     )
     notes = models.TextField(blank=True, verbose_name='ملاحظات')
 
+    # ---- تأكيد المحاسب عند إنهاء العملية: هل توضّبت كل الكميات الخام أم بقي خام؟ ----
+    all_packed_confirmed = models.BooleanField(
+        default=False,
+        verbose_name='المحاسب أكّد توضيب جميع الكميات الخام المستخدمة'
+    )
+    all_packed_confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='packing_sessions_all_packed_confirmed',
+        verbose_name='المحاسب الذي أكّد التوضيب الكامل'
+    )
+    all_packed_confirmed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='وقت تأكيد التوضيب الكامل'
+    )
+    leftover_note = models.TextField(
+        blank=True,
+        verbose_name='ملاحظات الكميات الخام المتبقية'
+    )
+
     class Meta:
         verbose_name = 'عملية توضيب'
         verbose_name_plural = 'عمليات التوضيب'
         ordering = ['-started_at']
+
+    # ---------------- خصائص حالة الإغلاق والكميات المتبقية ----------------
+
+    @property
+    def is_open(self):
+        """هل العملية ما زالت مفتوحة (قابلة لاستكمال التوضيب)؟"""
+        return self.status in (self.Status.DRAFT, self.Status.INCOMPLETE)
+
+    @property
+    def is_closed(self):
+        """هل أُغلقت العملية؟ (لا يُضاف إليها خام جديد بعد الإغلاق)"""
+        return self.status in (
+            self.Status.PENDING_APPROVAL,
+            self.Status.APPROVED,
+            self.Status.COMPLETED,
+        )
+
+    @property
+    def leftover_box_count(self):
+        """
+        إجمالي الصناديق الخام المتبقية في الطبالي المرتبطة بهذه العملية (رصيدها الحالي).
+        """
+        return sum(p.remaining_box_count for p in self.source_pallets.all())
+
+    @property
+    def leftover_pallets(self):
+        """الطبالي المرتبطة بالعملية التي بقي فيها خام غير موضب."""
+        return [p for p in self.source_pallets.all() if p.remaining_box_count > 0]
 
     def delete(self, *args, **kwargs):
         """
@@ -204,6 +256,7 @@ class PackingSession(models.Model):
             self.randeman_pct = Decimal('0.00')
 
         # فحص حد السماح لفرق الوزن
+        self.requires_manager_approval = False
         diff_pct = Decimal('0.00')
         if self.input_weight_kg > 0:
             diff_pct = (self.unexplained_diff_kg / self.input_weight_kg) * Decimal('100.00')
@@ -404,6 +457,183 @@ class PackingWaste(models.Model):
         return f"{self.session.session_code}: {self.waste_type} ({self.weight_kg} كغ)"
 
 
+class PackingRawConsumption(models.Model):
+    """
+    سجل سحب الكميات الخام من مصدرها الفعلي (دفتر الاستهلاك):
+
+    المبدأ الأساسي بعد تصحيح منطق التوضيب:
+    **عدد طبالي الخام ≠ عدد طبالي المنتج الموضب**، والأساس في الحساب هو
+    الكمية الفعلية (صناديق المزرعة المسحوبة) من مصدرها الحقيقي.
+
+    كل سطر هنا = «سُحبت هذه الكمية من هذه الطبلية الخام هذه، أثناء هذه العملية».
+    ويمكن أن تُسحَب كميات من أكثر من طبلية خام لتغذية الطبلية الموضبة نفسها،
+    بما فيها طبلية موجودة في البراد لم تبدأ في هذه العملية.
+
+    الحقول:
+    - `box_count`: عدد صناديق المزرعة المسحوبة من الطبلية المصدر.
+    - `estimated_weight_kg`: نصيب الطبلية المصدر من وزنها التقديري (حساب وزن الداخل).
+    - `net_weight_kg`: صافي وزن البضاعة المنسوبة إلى هذه الكمية فعلياً.
+    - `remaining_box_count`: رصيد الطبلية المصدر المتبقي بعد هذا السحب.
+    """
+    session = models.ForeignKey(
+        PackingSession,
+        on_delete=models.CASCADE,
+        related_name='raw_consumptions',
+        verbose_name='عملية التوضيب'
+    )
+    packed_pallet = models.ForeignKey(
+        'PackedPallet',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='raw_consumptions',
+        verbose_name='الطبلية الموضبة التي غُذّيت منها'
+    )
+    source_pallet = models.ForeignKey(
+        'operations.Pallet',
+        on_delete=models.PROTECT,
+        related_name='packing_consumptions',
+        verbose_name='الطبلية الخام المصدر'
+    )
+    trader = models.ForeignKey(
+        'operations.Trader',
+        on_delete=models.PROTECT,
+        related_name='packing_consumptions',
+        verbose_name='التاجر'
+    )
+    crop = models.ForeignKey(
+        'operations.Crop',
+        on_delete=models.PROTECT,
+        related_name='packing_consumptions',
+        verbose_name='نوع البضاعة'
+    )
+    box_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name='عدد صناديق المزرعة المسحوبة'
+    )
+    estimated_weight_kg = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        default=Decimal('0.000'),
+        verbose_name='نصيب الطبلية من الوزن التقديري الداخل (كغ)'
+    )
+    net_weight_kg = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        default=Decimal('0.000'),
+        verbose_name='صافي وزن البضاعة المسحوبة (كغ)'
+    )
+    remaining_box_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name='رصيد الطبلية المصدر بعد السحب'
+    )
+    cold_store = models.ForeignKey(
+        'operations.ColdStore',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='packing_consumptions',
+        verbose_name='البراد وقت السحب'
+    )
+    shelf = models.ForeignKey(
+        'operations.Shelf',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='packing_consumptions',
+        verbose_name='السيخ وقت السحب'
+    )
+    movement = models.ForeignKey(
+        'operations.PalletMovementLog',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='packing_consumptions',
+        verbose_name='حركة الصرف من التخزين'
+    )
+    notes = models.CharField(max_length=255, blank=True, verbose_name='ملاحظات')
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='packing_raw_consumptions',
+        verbose_name='المستخدم الذي سجّل السحب'
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='وقت السحب')
+
+    class Meta:
+        verbose_name = 'سحب كمية خام'
+        verbose_name_plural = 'سحوبات الكميات الخام'
+        ordering = ['id']
+
+    def __str__(self):
+        return (
+            f"{self.source_pallet.pallet_code} → {self.box_count} صندوق "
+            f"({self.session.session_code})"
+        )
+
+
+class PackingLeftoverSettlement(models.Model):
+    """
+    تسوية الكميات الخام المتبقية قبل إغلاق عملية التوضيب:
+
+    لا يجوز إغلاق العملية ما دام في طبالٍ خام متبقٍ لم يُحدَّد مصيره.
+    ويُسجَّل هنا مصير الباقي بوضوح:
+
+    - `RETURN_TO_STORE`: إعادة الباقي للبراد (يبقى مخزوناً قابلاً للاستخدام).
+    - `WRITE_OFF`: تسوية/إتلاف معتمد (تُوثَّق الحركة ولا تُنشأ قيود مالية تلقائية).
+
+    ملاحظة محاسبية: هذا السجل توثيقي فقط ولا يُنشئ إيرادات أو مصروفات.
+    """
+    class Resolution(models.TextChoices):
+        RETURN_TO_STORE = 'RETURN_TO_STORE', 'إعادة الباقي للبراد (يبقى مخزوناً)'
+        WRITE_OFF = 'WRITE_OFF', 'تسوية / إتلاف معتمد'
+
+    session = models.ForeignKey(
+        PackingSession,
+        on_delete=models.CASCADE,
+        related_name='leftover_settlements',
+        verbose_name='عملية التوضيب'
+    )
+    pallet = models.ForeignKey(
+        'operations.Pallet',
+        on_delete=models.PROTECT,
+        related_name='packing_leftover_settlements',
+        verbose_name='الطبلية الخام'
+    )
+    box_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name='عدد الصناديق التي تمت تسويتها'
+    )
+    resolution = models.CharField(
+        max_length=30,
+        choices=Resolution.choices,
+        verbose_name='نوع التسوية'
+    )
+    notes = models.TextField(blank=True, verbose_name='مبررات التسوية')
+    settled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='packing_leftover_settlements',
+        verbose_name='من نفّذ التسوية'
+    )
+    settled_at = models.DateTimeField(auto_now_add=True, verbose_name='وقت التسوية')
+
+    class Meta:
+        verbose_name = 'تسوية كمية خام متبقية'
+        verbose_name_plural = 'تسويات الكميات الخام المتبقية'
+        ordering = ['-settled_at', '-id']
+
+    def __str__(self):
+        return (
+            f"{self.pallet.pallet_code}: {self.get_resolution_display()} "
+            f"({self.box_count} صندوق)"
+        )
+
+
 class PackedPallet(models.Model):
     """
     الطبلية الموضبة:
@@ -497,6 +727,20 @@ class PackedPallet(models.Model):
     def __str__(self):
         return f"{self.packed_pallet_code} ({self.trader.name} - {self.size_name})"
 
+    @property
+    def source_breakdown(self):
+        """
+        توزيع الكميات الخام التي غذّت هذه الطبلية على الطبالي المصدر.
+        قد تكون الطبلية الموضبة واحدة فقط (للتوافق مع الشاشات القديمة)،
+        لكن الحقيقية هي أنها قد تُغذّى من أكثر من طبلية خام.
+        """
+        return list(self.raw_consumptions.select_related('source_pallet').all())
+
+    @property
+    def source_pallet_codes(self):
+        """رموز الطبالي الخام المصدر (مفصولة بفواصل)."""
+        return '، '.join(c.source_pallet.pallet_code for c in self.source_breakdown)
+
     # ---------- خدمة التبريد اليومية للطبالي الموضبة ----------
     @property
     def open_cooling_log(self):
@@ -535,14 +779,20 @@ class PackedPallet(models.Model):
     def get_qr_data(self):
         """
         بيانات QR الموضب:
-        يعرض الطبلية الأصلية، التاجر، السيارة الأصلية، المقاس، والوزن الموضب
+        يعرض الطبلية الأصلية، التاجر، السيارة الأصلية، المقاس، والوزن الموضب،
+        ومعها توزيع الكميات الخام على الطبالي المصدر (قد تكون أكثر من طبلية).
         """
         truck = self.original_pallet.truck_receipt
+        breakdown = [
+            f"{c.source_pallet.pallet_code}: {c.box_count} صندوق ({c.net_weight_kg} كغ)"
+            for c in self.source_breakdown
+        ]
         return {
             "type": "PACKED_PALLET",
             "packed_code": self.packed_pallet_code,
             "original_pallet": self.original_pallet.pallet_code,
             "original_sscc": self.original_pallet.sscc_code,
+            "source_breakdown": ' | '.join(breakdown) if breakdown else "غير مسجّل",
             "lot_number": truck.lot_number,
             "truck_plate": truck.truck_plate or "غير مسجل",
             "trader": self.trader.name,
