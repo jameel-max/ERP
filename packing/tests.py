@@ -162,13 +162,15 @@ class Phase2ComprehensiveTests(TestCase):
 
         input_weight = session.input_weight_kg
 
-        # نواتج: ناتج موضب 400 كغ، وهالك مصنف 20 كغ
+        # نواتج: ناتج موضب 400 كغ صافي، وهالك مصنف 20 كغ
+        # الوزن المُدخل (440 كغ) هو وزن الطبلية كما تُوزن (بضاعة + صناديق 50 × 0.800 = 40 كغ)،
+        # والنظام يخصم وزن الصناديق تلقائياً فيصبح الصافي 400 كغ.
         # الفرق غير المفسر = input_weight - 420 كغ (ليس هالكاً تلقائياً)
         outputs_data = [{
             'size_name': 'XL',
             'box_type': self.box_blue,
             'box_count': 50,
-            'net_weight_kg': Decimal('400.000'),
+            'net_weight_kg': Decimal('440.000'),
             'pallet_count': 1
         }]
         wastes_data = [{
@@ -263,7 +265,9 @@ class Phase2ComprehensiveTests(TestCase):
             created_by=self.accountant
         )
 
-        # 3. توضيب فعلي 800 كغ
+        # 3. توضيب فعلي 800 كغ صافي
+        # الوزن المُدخل 864 كغ = 800 صافي + 80 صندوق × 0.800 كغ وزن فارغ،
+        # والنظام يخصم وزن الصناديق تلقائياً فلا تُحسب كبضاعة.
         session = PackingService.start_packing_session(
             trader=self.trader1,
             crop=self.crop,
@@ -275,7 +279,7 @@ class Phase2ComprehensiveTests(TestCase):
             'size_name': 'Medium',
             'box_type': self.box_blue,
             'box_count': 80,
-            'net_weight_kg': Decimal('800.000'),
+            'net_weight_kg': Decimal('864.000'),
             'pallet_count': 1
         }]
         PackingService.record_outputs_and_finalize(session, outputs_data, user=self.accountant)
@@ -318,15 +322,15 @@ class Phase2ComprehensiveTests(TestCase):
         )
         outputs_data = [
             {'size_name': 'XL', 'box_type': self.box_blue, 'box_count': 10,
-             'net_weight_kg': Decimal('12.345'), 'pallet_count': 1},
+             'net_weight_kg': Decimal('20.345'), 'pallet_count': 1},
             {'size_name': 'XL', 'box_type': self.box_blue, 'box_count': 8,
-             'net_weight_kg': Decimal('9.876'), 'pallet_count': 1},
+             'net_weight_kg': Decimal('16.276'), 'pallet_count': 1},
         ]
         PackingService.record_outputs_and_finalize(session, outputs_data, user=self.accountant)
 
         packed = list(session.packed_pallets.order_by('id'))
         self.assertEqual(len(packed), 2)
-        # وزن وعدد صناديق كل طبلية = ما أدخله المشغل لسطرها بالضبط (بلا توزيع)
+        # وزن كل طبلية = الوزن المُدخل ناقص وزن صناديقها الفارغة (10 × 0.800 = 8 كغ، 8 × 0.800 = 6.4 كغ)
         self.assertEqual(packed[0].net_weight_kg, Decimal('12.345'))
         self.assertEqual(packed[1].net_weight_kg, Decimal('9.876'))
         self.assertEqual(packed[0].box_count, 10)
@@ -358,6 +362,7 @@ class Phase2ComprehensiveTests(TestCase):
             'size_name[]': ['P1 Standard'],
             'box_type[]': [str(self.box_blue.id)],
             'box_count[]': ['20'],
+            # 100 كغ = وزن الطبلية كما تُوزن (84 صافي + 20 صندوق × 0.800 كغ)
             'net_weight_kg[]': ['100.000'],
             'waste_type[]': ['تالف'],
             'waste_weight[]': ['0.000'],
@@ -365,7 +370,8 @@ class Phase2ComprehensiveTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(session.packed_pallets.count(), 1)
         packed = session.packed_pallets.first()
-        self.assertEqual(packed.net_weight_kg, Decimal('100.000'))
+        # يُخصم وزن الصناديق الفارغة (20 × 0.800 = 16 كغ) تلقائياً من الوزن المُدخل
+        self.assertEqual(packed.net_weight_kg, Decimal('84.000'))
         self.assertEqual(packed.box_count, 20)
 
     def test_packing_finalize_view_records_farm_empty_consumption(self):
@@ -1022,15 +1028,18 @@ class PackagingItemsChargeTests(TestCase):
 
     def test_packaging_items_do_not_affect_packed_weight_or_randeman(self):
         session = self._start_session()
+        # الوزن المُدخل = الوزن الصافي التقديري للطبلية + وزن الصناديق الفارغة (80 × 0.800)
+        entered = self.pallet.estimated_net_weight + Decimal('64.000')
         PackingService.record_outputs_and_finalize(session, [{
             'size_name': 'XL', 'box_type': self.box, 'box_count': 80,
-            'net_weight_kg': self.pallet.estimated_net_weight, 'pallet_count': 1,
+            'net_weight_kg': entered, 'pallet_count': 1,
             'packaging_items': [
                 {'packaging_item': self.paper, 'quantity': Decimal('80')},
             ],
         }], user=self.accountant)
         session.refresh_from_db()
-        # الوزن الموضب = وزن الناتج فقط، ولا تدخل أوزان أصناف التغليف في الرندمان
+        # الوزن الموضب = الصافي بعد خصم وزن الصناديق فقط،
+        # ولا تدخل أوزان أصناف التغليف (الورق) في الوزن ولا في الرندمان
         self.assertEqual(session.output_packed_kg, self.pallet.estimated_net_weight)
 
     def test_zero_quantity_packaging_items_are_ignored(self):
@@ -1043,6 +1052,58 @@ class PackagingItemsChargeTests(TestCase):
             ],
         }], user=self.accountant)
         self.assertFalse(self.PackingSessionPackagingCharge.objects.filter(session=session).exists())
+
+    def test_box_tare_weight_is_deducted_from_packed_weight(self):
+        """
+        وزن الصناديق الفارغة يُخصم تلقائياً من الوزن المُدخل، فلا يُحاسَب
+        التاجر على وزن الصناديق كأنه بضاعة موضبة، ولا يتضخم الرندمان.
+        """
+        session = PackingService.start_packing_session(
+            trader=self.trader,
+            crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet],
+            user=self.accountant,
+        )
+        input_weight = session.input_weight_kg
+
+        # 30 صندوق × 0.800 كغ = 24 كغ وزن صناديق
+        entered = input_weight  # نُدخل وزناً يساوي الداخل تماماً
+        PackingService.record_outputs_and_finalize(session, [{
+            'size_name': 'XL', 'box_type': self.box, 'box_count': 30,
+            'net_weight_kg': entered, 'pallet_count': 1,
+        }], user=self.accountant)
+
+        session.refresh_from_db()
+        expected_net = (entered - Decimal('24.000')).quantize(Decimal('0.001'))
+        self.assertEqual(session.output_packed_kg, expected_net)
+        self.assertEqual(session.packed_pallets.first().net_weight_kg, expected_net)
+        # الرندمان محسوب على الصافي الحقيقي لا على الوزن المُدخل
+        expected_randeman = ((expected_net / input_weight) * Decimal('100.00')).quantize(Decimal('0.01'))
+        self.assertEqual(session.randeman_pct, expected_randeman)
+
+    def test_entered_weight_lower_than_box_tare_is_rejected(self):
+        """
+        لو كان الوزن المُدخل أقل من وزن صناديقها الفارغة، تُرفض العملية
+        برسالة واضحة بدل تسجيل وزن سالب.
+        """
+        from django.core.exceptions import ValidationError
+
+        session = PackingService.start_packing_session(
+            trader=self.trader,
+            crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallet],
+            user=self.accountant,
+        )
+        with self.assertRaises(ValidationError):
+            PackingService.record_outputs_and_finalize(session, [{
+                'size_name': 'XL', 'box_type': self.box, 'box_count': 100,
+                'net_weight_kg': Decimal('50.000'),  # أقل من 100 × 0.800 = 80 كغ
+                'pallet_count': 1,
+            }], user=self.accountant)
+        session.refresh_from_db()
+        self.assertEqual(session.outputs.count(), 0)
 
     def test_packing_detail_page_shows_packaging_picker(self):
         session = self._start_session()

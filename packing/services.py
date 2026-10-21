@@ -241,7 +241,20 @@ class PackingService:
         for out in outputs_data:
             box_type = out['box_type'] if isinstance(out['box_type'], BoxType) else BoxType.objects.get(id=out['box_type'])
             box_count = int(out['box_count'])
-            net_weight = Decimal(str(out['net_weight_kg']))
+            # الوزن المُدخل من المشغّل هو وزن الطبلية الموضبة كما تُوزن فعلياً
+            # (بضاعة + صناديق). نطرح وزن الصناديق الفارغة تلقائياً
+            # (عدد الصناديق × الوزن الفارغ المعرَّف في نوع الصندوق) حتى لا يُحاسَب
+            # التاجر على وزن الصناديق كأنه بضاعة موضبة، ولا يتضخم الرندمان.
+            entered_weight = Decimal(str(out['net_weight_kg']))
+            tare_per_box = Decimal(str(box_type.tare_weight or 0))
+            box_tare_total = (tare_per_box * box_count).quantize(Decimal('0.001'))
+            net_weight = (entered_weight - box_tare_total).quantize(Decimal('0.001'))
+            if net_weight < 0:
+                raise ValidationError(
+                    f"الوزن المُدخل للطبلية ({entered_weight} كغ) أقل من وزن صناديقها الفارغة "
+                    f"({box_tare_total} كغ = {box_count} صندوق × {tare_per_box} كغ). "
+                    f"تحقّق من الوزن المُدخل أو من «الوزن الفارغ» المعرَّف في نوع الصندوق «{box_type.name}»."
+                )
             pallet_count = int(out.get('pallet_count', 1))
 
             output_obj = PackingOutput.objects.create(
