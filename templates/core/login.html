@@ -13,6 +13,12 @@
                     <p class="mb-0 text-light opacity-75">نظام إدارة المشغل والتجار والبرادات</p>
                 </div>
                 <div class="card-body p-4 bg-white">
+                    {% if form.errors %}
+                    <div class="alert alert-danger border-0 d-flex align-items-center mb-3" role="alert">
+                        <i class="bi bi-exclamation-circle-fill me-2 fs-5"></i>
+                        <div>اسم المستخدم أو كلمة المرور غير صحيحة. يرجى المحاولة مجدداً.</div>
+                    </div>
+                    {% endif %}
                     <form method="post" data-ajax="0">
                         {% csrf_token %}
                         <div class="mb-3">

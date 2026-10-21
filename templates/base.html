@@ -55,12 +55,24 @@
             padding: 1rem 1.15rem 0.35rem;
             border-top: 1px solid #f1f5f9;
             margin-top: 0.35rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+            transition: color 0.15s;
         }
+        .rf-sidebar .rf-group-title:hover { color: #64748b; }
         .rf-sidebar .rf-group-title:first-of-type {
             border-top: none;
             margin-top: 0;
             padding-top: 0.5rem;
         }
+        .rf-group-title .rf-chevron {
+            transition: transform 0.2s ease;
+            font-size: 0.65rem;
+        }
+        .rf-nav-group.collapsed .rf-chevron { transform: rotate(-90deg); }
         .rf-sidebar a.rf-link {
             display: flex;
             align-items: center;
@@ -307,7 +319,10 @@
             <div class="rf-group-title">الرئيسية</div>
             <a class="rf-link" href="{% url 'home' %}"><i class="bi bi-speedometer2"></i> لوحة التحكم</a>
 
-            <div class="rf-group-title">التشغيل اليومي</div>
+            <div class="rf-group-title rf-nav-toggle" data-target="navDaily">
+                التشغيل اليومي <i class="bi bi-chevron-down rf-chevron"></i>
+            </div>
+            <div id="navDaily" class="rf-nav-group">
             <a class="rf-link" href="{% url 'trader_list' %}"><i class="bi bi-people-fill"></i> التجار</a>
             <a class="rf-link" href="{% url 'truck_list' %}"><i class="bi bi-truck"></i> السيارات والوصول</a>
             <a class="rf-link" href="{% url 'packing_list' %}"><i class="bi bi-gear-wide-connected"></i> التوضيب</a>
@@ -315,8 +330,12 @@
             <a class="rf-link" href="{% url 'employee_list' %}"><i class="bi bi-person-badge"></i> الموظفون (رواتب)</a>
             <a class="rf-link" href="{% url 'invoice_list' %}"><i class="bi bi-receipt"></i> الفواتير</a>
             <a class="rf-link" href="{% url 'delivery_notes_list' %}"><i class="bi bi-file-earmark-arrow-right"></i> إذن التسليم</a>
+            </div>
 
-            <div class="rf-group-title">المخزن والبرادات</div>
+            <div class="rf-group-title rf-nav-toggle" data-target="navStorage">
+                المخزن والبرادات <i class="bi bi-chevron-down rf-chevron"></i>
+            </div>
+            <div id="navStorage" class="rf-nav-group">
             <a class="rf-link" href="{% url 'cold_store_list' %}"><i class="bi bi-snow2"></i> البرادات والأسياخ</a>
             <a class="rf-link" href="{% url 'cold_store_temperature_log' %}"><i class="bi bi-thermometer-half"></i> سجل درجات الحرارة</a>
             <a class="rf-link" href="{% url 'packed_pallets_list' %}"><i class="bi bi-box2-heart"></i> الطبالي الموضبة</a>
@@ -327,26 +346,42 @@
             <a class="rf-link" href="{% url 'farm_boxes_dashboard' %}"><i class="bi bi-truck-front"></i> الصناديق الواردة من المزرعة</a>
             <a class="rf-link {% if active_nav == 'empty_boxes' %}active{% endif %}" href="{% url 'empty_box_delivery_list' %}"><i class="bi bi-box-arrow-up-left"></i> تسليم الفارغ للمزرعة أو بيعه</a>
             <a class="rf-link" href="{% url 'crop_list' %}"><i class="bi bi-basket"></i> أنواع البضاعة</a>
+            </div>
 
-            <div class="rf-group-title">الاستيراد والتصدير</div>
+            <div class="rf-group-title rf-nav-toggle" data-target="navTrade">
+                الاستيراد والتصدير <i class="bi bi-chevron-down rf-chevron"></i>
+            </div>
+            <div id="navTrade" class="rf-nav-group">
             <a class="rf-link {% if active_nav == 'trade' %}active{% endif %}" href="{% url 'trade_shipment_list' %}"><i class="bi bi-globe2"></i> شحنات الاستيراد والتصدير</a>
             {% if user.is_accountant %}
             <a class="rf-link" href="{% url 'trade_shipment_create' %}?direction=IMPORT"><i class="bi bi-box-arrow-in-down"></i> شحنة استيراد جديدة</a>
             <a class="rf-link" href="{% url 'trade_shipment_create' %}?direction=EXPORT"><i class="bi bi-box-arrow-up"></i> شحنة تصدير جديدة</a>
             {% endif %}
+            </div>
 
-            <div class="rf-group-title">المالية والخزينة</div>
+            <div class="rf-group-title rf-nav-toggle" data-target="navFinance">
+                المالية والخزينة <i class="bi bi-chevron-down rf-chevron"></i>
+            </div>
+            <div id="navFinance" class="rf-nav-group">
             <a class="rf-link" href="{% url 'treasury_dashboard' %}"><i class="bi bi-safe"></i> لوحة الخزينة</a>
             <a class="rf-link" href="{% url 'payment_list' %}"><i class="bi bi-cash"></i> المقبوضات والمدفوعات</a>
             <a class="rf-link" href="{% url 'expense_list' %}"><i class="bi bi-receipt-cutoff"></i> المصاريف</a>
             <a class="rf-link" href="{% url 'check_list' %}"><i class="bi bi-card-checklist"></i> الشيكات</a>
+            </div>
 
             {% if user.is_manager %}
-            <div class="rf-group-title">التحليل والمؤشرات</div>
+            <div class="rf-group-title rf-nav-toggle" data-target="navAnalytics">
+                التحليل والمؤشرات <i class="bi bi-chevron-down rf-chevron"></i>
+            </div>
+            <div id="navAnalytics" class="rf-nav-group">
             <a class="rf-link" href="{% url 'analytics_dashboard' %}"><i class="bi bi-graph-up-arrow"></i> لوحة المدير والمؤشرات</a>
             <a class="rf-link" href="{% url 'manager_daily_report' %}"><i class="bi bi-file-earmark-text"></i> التقرير اليومي</a>
+            </div>
 
-            <div class="rf-group-title">الإدارة</div>
+            <div class="rf-group-title rf-nav-toggle" data-target="navAdmin">
+                الإدارة <i class="bi bi-chevron-down rf-chevron"></i>
+            </div>
+            <div id="navAdmin" class="rf-nav-group">
             <a class="rf-link" href="{% url 'system_settings' %}"><i class="bi bi-sliders"></i> إعدادات النظام</a>
             <a class="rf-link" href="{% url 'import_csv' %}"><i class="bi bi-file-earmark-spreadsheet"></i> استيراد CSV (قديم)</a>
             <a class="rf-link" href="{% url 'audit_logs' %}"><i class="bi bi-clock-history"></i> سجل التدقيق</a>
@@ -354,6 +389,7 @@
             {% if user.is_owner %}
             <a class="rf-link text-danger" href="{% url 'database_wipe' %}"><i class="bi bi-trash3-fill"></i> تفريغ قاعدة البيانات</a>
             {% endif %}
+            </div>
             {% endif %}
         </aside>
         <div class="rf-sidebar-backdrop" id="sidebarBackdrop"></div>
@@ -386,6 +422,7 @@
             </div>
 
             <main class="flex-grow-1 pb-5">
+                {% block breadcrumb %}{% endblock %}
                 {% block content %}{% endblock %}
             </main>
 
@@ -394,7 +431,9 @@
                     <div>
                         <strong>{{ company_name_en }}</strong> ({{ company_name_ar }}) &bull; نظام المشغل المتكامل لإدارة البضاعة والتجار والفواتير
                     </div>
+                    {% if user.is_owner %}
                     <small class="text-muted">المنطقة الزمنية: Asia/Amman &bull; الدينار الأردني بثلاث خانات عشرية (ROUND_HALF_UP)</small>
+                    {% endif %}
                 </div>
             </footer>
         </div>
@@ -423,6 +462,41 @@
                 if (href && (path === href || (href !== '/' && path.indexOf(href) === 0))) {
                     a.classList.add('active');
                 }
+            });
+        })();
+
+        // ========================
+        // Collapsible nav groups
+        // ========================
+        (function () {
+            var STORAGE_KEY = 'rf_nav_open_groups';
+            var saved = {};
+            try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(e) {}
+
+            var togglers = document.querySelectorAll('.rf-nav-toggle');
+            togglers.forEach(function(btn) {
+                var targetId = btn.getAttribute('data-target');
+                var group = document.getElementById(targetId);
+                if (!group) return;
+
+                // الافتراضي: افتح المجموعة إذا احتوت على رابط نشط، وإلا أغلقها
+                var hasActive = group.querySelector('a.rf-link.active');
+                var isOpen = saved[targetId] !== undefined ? saved[targetId] : !!hasActive;
+
+                if (!isOpen) {
+                    group.style.display = 'none';
+                    btn.classList.add('collapsed');
+                }
+
+                btn.addEventListener('click', function() {
+                    var nowOpen = group.style.display !== 'none';
+                    group.style.display = nowOpen ? 'none' : '';
+                    btn.classList.toggle('collapsed', nowOpen);
+                    try {
+                        saved[targetId] = !nowOpen;
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+                    } catch(e) {}
+                });
             });
         })();
 
