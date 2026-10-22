@@ -18,18 +18,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 
 from waitress import serve  # noqa: E402
-from django.core.management import call_command  # noqa: E402
 from config.wsgi import application  # noqa: E402
 
 
 def main():
-    # Render services created before render.yaml was connected as a Blueprint
-    # may keep their dashboard Build Command and skip build.sh. Apply schema
-    # changes from the configured start command as well; existing deployments
-    # that already migrated simply report "No migrations to apply".
-    print('Applying Django database migrations before serving requests...')
-    call_command('migrate', interactive=False, verbosity=1)
-
     host = os.environ.get('SERVER_HOST', '0.0.0.0')
     # Render (وغيره من المنصات السحابية) يضبط المنفذ في المتغير PORT.
     # نعطيه الأولوية، ثم SERVER_PORT، ثم 8000 افتراضياً.
