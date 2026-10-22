@@ -1,12 +1,13 @@
 from django import forms
 from .models import PackingSession, PackingOutput, PackingWaste, DeliveryNote, PackedPallet
 from operations.models import Trader, Crop, Pallet, BoxType, ColdStore, Shelf
+from operations.forms import ShelfSelect
 
 
 class StartPackingSessionForm(forms.ModelForm):
     source_pallets = forms.ModelMultipleChoiceField(
         queryset=Pallet.objects.filter(
-            status__in=[Pallet.Status.IN_COOLING, Pallet.Status.OPEN_PARTIAL],
+            status=Pallet.Status.IN_COOLING,
             remaining_box_count__gt=0,
         ),
         widget=forms.SelectMultiple(attrs={'class': 'form-select select2', 'size': '6'}),
@@ -33,15 +34,27 @@ class StartPackingSessionForm(forms.ModelForm):
             current = instance.source_pallets.all()
             self.fields['source_pallets'].queryset = (
                 Pallet.objects.filter(
-                    status__in=[Pallet.Status.IN_COOLING, Pallet.Status.OPEN_PARTIAL],
+                    status=Pallet.Status.IN_COOLING,
                     remaining_box_count__gt=0,
                 ) | current
             ).distinct()
+        # Keep the picker aligned with the selected business context. The
+        # service validates this again under a database lock; this filter gives
+        # staff a relevant list and prevents selecting another trader/crop by
+        # mistake before submit.
+        trader_id = self.data.get('trader') if self.is_bound else self.initial.get('trader')
+        crop_id = self.data.get('crop') if self.is_bound else self.initial.get('crop')
+        source_queryset = self.fields['source_pallets'].queryset
+        if trader_id and str(trader_id).isdigit():
+            source_queryset = source_queryset.filter(trader_id=trader_id)
+        if crop_id and str(crop_id).isdigit():
+            source_queryset = source_queryset.filter(crop_id=crop_id)
+        self.fields['source_pallets'].queryset = source_queryset
         # تخصيص عرض الطبالي في القائمة: يُبيَّن رصيد الصناديق المتبقي فعلياً
         # (الطبلية المفتوحة جزئياً تُعرض بما تبقّى منها لا بكامل صناديقها).
         self.fields['source_pallets'].label_from_instance = lambda obj: (
             f"{obj.pallet_code} - {obj.trader.name} ({obj.crop.name} - "
-            f"{obj.remaining_box_count} صندوق متبقٍ من {obj.box_count} - {obj.cold_store.name})"
+            f"خام • {obj.remaining_box_count} صندوق متاح من {obj.box_count} - {obj.cold_store.name})"
         )
 
 
@@ -54,7 +67,7 @@ class PackedPalletCoolingForm(forms.Form):
     shelf = forms.ModelChoiceField(
         queryset=Shelf.objects.all(),
         required=False,
-        widget=forms.Select(attrs={'class': 'form-select', 'id': 'id_shelf'}),
+        widget=ShelfSelect('id_cold_store', attrs={'class': 'form-select', 'id': 'id_shelf'}),
         label='السيخ / الرف (اختياري)'
     )
     notes = forms.CharField(
@@ -69,6 +82,14 @@ class PackedPalletCoolingForm(forms.Form):
             'cold_store__name', 'shelf_number'
         )
         self.fields['shelf'].label_from_instance = lambda s: f"{s.cold_store.name} – السيخ {s.shelf_number}"
+
+    def clean(self):
+        cleaned = super().clean()
+        store = cleaned.get('cold_store')
+        shelf = cleaned.get('shelf')
+        if shelf and store and shelf.cold_store_id != store.pk:
+            self.add_error('shelf', 'السيخ المختار لا ينتمي إلى البراد المحدد.')
+        return cleaned
 
 
 class DeliveryNoteForm(forms.ModelForm):

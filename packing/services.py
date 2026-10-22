@@ -1,5 +1,6 @@
 from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
+from django.db.models import Sum
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
@@ -115,8 +116,23 @@ class PackingService:
         if not source_pallets:
             raise ValidationError('يجب اختيار طبلية واحدة على الأقل من البراد.')
 
+        source_pallets = list(source_pallets)
         new_ids = {p.id for p in source_pallets}
+        if len(new_ids) != len(source_pallets):
+            raise ValidationError('لا يجوز اختيار الطبلية الخام نفسها أكثر من مرة.')
         old_ids = set(session.source_pallets.values_list('id', flat=True))
+        locked_by_id = {
+            p.pk: p for p in Pallet.objects.select_for_update().filter(pk__in=new_ids).order_by('pk')
+        }
+        if len(locked_by_id) != len(new_ids):
+            raise ValidationError('إحدى الطبالي المختارة لم تعد موجودة.')
+        source_pallets = [locked_by_id[p.pk] for p in source_pallets]
+        for p in source_pallets:
+            expected_status = Pallet.Status.OUT_FOR_PACKING if p.pk in old_ids else Pallet.Status.IN_COOLING
+            if p.status != expected_status or p.remaining_box_count <= 0:
+                raise ValidationError(f'الطبلية {p.pallet_code} لم تعد متاحة لتعديل هذه العملية.')
+            if p.trader_id != trader.pk or p.crop_id != crop.pk:
+                raise ValidationError('يجب أن تتبع جميع الطبالي المختارة التاجر والبضاعة المحددين.')
 
         # إرجاع الطبالي التي أُزيلت من الجلسة إلى البراد
         removed_ids = old_ids - new_ids
@@ -137,7 +153,16 @@ class PackingService:
         added = [p for p in source_pallets if p.id not in old_ids]
         if added:
             now = timezone.now()
-            for p in Pallet.objects.select_for_update().filter(id__in=[p.id for p in added]):
+            locked_added = list(Pallet.objects.select_for_update().filter(
+                id__in=[p.id for p in added]
+            ).order_by('pk'))
+            if len(locked_added) != len(added):
+                raise ValidationError('إحدى الطبالي المختارة لم تعد موجودة.')
+            for p in locked_added:
+                if p.status != Pallet.Status.IN_COOLING or p.remaining_box_count <= 0:
+                    raise ValidationError(f'الطبلية {p.pallet_code} لم تعد متاحة للتوضيب.')
+                if p.trader_id != trader.pk or p.crop_id != crop.pk:
+                    raise ValidationError('يجب أن تتبع الطبالي المختارة التاجر والبضاعة المحددين.')
                 p.status = Pallet.Status.OUT_FOR_PACKING
                 p.exited_cooling_at = now
                 p.save(update_fields=['status', 'exited_cooling_at'])
@@ -180,13 +205,37 @@ class PackingService:
         if not source_pallets:
             raise ValidationError("يجب اختيار طبلية واحدة على الأقل من البراد للبدء بالتوضيب.")
 
+        # Lock and re-read every source in stable order. The form queryset is only
+        # a convenience; it cannot prevent two concurrent requests from reserving
+        # the same pallet. OUT_FOR_PACKING is the existing reservation state.
+        source_ids = [p.pk for p in source_pallets]
+        if len(source_ids) != len(set(source_ids)):
+            raise ValidationError("لا يجوز اختيار الطبلية الخام نفسها أكثر من مرة.")
+        locked_sources = list(
+            Pallet.objects.select_for_update().filter(pk__in=source_ids).order_by('pk')
+        )
+        if len(locked_sources) != len(source_ids):
+            raise ValidationError("إحدى الطبالي الخام المختارة لم تعد موجودة.")
+        source_by_id = {p.pk: p for p in locked_sources}
+        locked_sources = [source_by_id[pk] for pk in source_ids]
+        for p in locked_sources:
+            if p.status != Pallet.Status.IN_COOLING:
+                raise ValidationError(
+                    f"الطبلية {p.pallet_code} غير متاحة للحجز حالياً "
+                    f"(حالتها: {p.get_status_display()}). حدّث القائمة وحاول مجدداً."
+                )
+            if p.remaining_box_count <= 0:
+                raise ValidationError(f"الطبلية {p.pallet_code} لا تحتوي على رصيد خام متاح.")
+            if p.trader_id != trader.pk or p.crop_id != crop.pk:
+                raise ValidationError("يجب أن تتبع جميع الطبالي المختارة التاجر ونوع البضاعة المحددين.")
+
         session_code = PackingSession.generate_session_code()
 
         # حساب الوزن الصافي الإجمالي الداخل للتوضيب.
         # الطبلية المفتوحة جزئياً (سُحبت منها صناديق في عملية سابقة) لا تُحتسب بكامل
         # وزنها، بل بقدر ما تبقّى فيها فعلاً — فالأساس هو الكمية المتاحة لا عدد الطبالي.
         input_weight = Decimal('0.000')
-        for p in source_pallets:
+        for p in locked_sources:
             input_weight += (Decimal(p.estimated_net_weight) * p.remaining_ratio).quantize(Decimal('0.001'))
 
         session = PackingSession.objects.create(
@@ -200,11 +249,11 @@ class PackingService:
             created_by=user,
             started_at=timezone.now()
         )
-        session.source_pallets.set(source_pallets)
+        session.source_pallets.set(locked_sources)
 
         # تحديث حالة الطبالي المسحوبة من البراد وتسجيل حركتها
         now = timezone.now()
-        for p in source_pallets:
+        for p in locked_sources:
             if p.status == Pallet.Status.OPEN_PARTIAL:
                 # الطبلية مخرجة من البراد أصلاً ومتبقٍ فيها خام: تُستخدم كما هي،
                 # بلا إخراج جديد من البراد (حركتها الأولى موثّقة في جلستها السابقة).
@@ -231,7 +280,7 @@ class PackingService:
             user=user,
             action='START_PACKING_SESSION',
             instance=session,
-            reason=f'بدء توضيب {len(source_pallets)} طبلية للتاجر {trader.name}',
+            reason=f'بدء توضيب {len(locked_sources)} طبلية للتاجر {trader.name}',
             details={'session_code': session.session_code, 'input_weight': str(input_weight)}
         )
 
@@ -274,6 +323,7 @@ class PackingService:
         # وضع الكميات الجديدة (مفعّل) مقابل المسار التاريخي المتوافق
         use_allocations = allocations is not None
         draw_plan = cls._prepare_draw_plan(session, outputs_data, allocations) if use_allocations else None
+        source_weight_variances = []
 
         packaging_charge_total = Decimal('0.000')
         packaging_items_count = 0
@@ -283,6 +333,8 @@ class PackingService:
         for out_index, out in enumerate(outputs_data):
             box_type = out['box_type'] if isinstance(out['box_type'], BoxType) else BoxType.objects.get(id=out['box_type'])
             box_count = int(out['box_count'])
+            if box_count <= 0:
+                raise ValidationError("يجب أن يكون عدد الصناديق في كل ناتج أكبر من صفر.")
             # الوزن المُدخل من المشغّل هو وزن الطبلية الموضبة كما تُوزن فعلياً
             # (بضاعة + صناديق). نطرح وزن الصناديق الفارغة تلقائياً
             # (عدد الصناديق × الوزن الفارغ المعرَّف في نوع الصندوق) حتى لا يُحاسَب
@@ -298,6 +350,8 @@ class PackingService:
                     f"تحقّق من الوزن المُدخل أو من «الوزن الفارغ» المعرَّف في نوع الصندوق «{box_type.name}»."
                 )
             pallet_count = int(out.get('pallet_count', 1) or 1)
+            if pallet_count <= 0:
+                raise ValidationError("عدد الطبالي الناتجة يجب أن يكون أكبر من صفر.")
 
             output_obj = PackingOutput.objects.create(
                 session=session,
@@ -338,6 +392,7 @@ class PackingService:
             else:
                 primary_pallet = legacy_primary
             orig_code = primary_pallet.pallet_code if primary_pallet else session.session_code
+            allocated_packed_weight = Decimal('0.000')
             for i in range(pallet_count):
                 base_code = f"{orig_code}-{out['size_name']}"
                 packed_code = base_code
@@ -351,8 +406,16 @@ class PackingService:
                     suffix += 1
 
                 # وزن نسبي للطبلية الموضبة
-                p_net = (net_weight / Decimal(pallet_count)).quantize(Decimal('0.001'))
-                p_boxes = box_count // pallet_count
+                if i == pallet_count - 1:
+                    p_net = (net_weight - allocated_packed_weight).quantize(
+                        Decimal('0.001'), rounding=ROUND_HALF_UP
+                    )
+                else:
+                    p_net = (net_weight / Decimal(pallet_count)).quantize(
+                        Decimal('0.001'), rounding=ROUND_HALF_UP
+                    )
+                    allocated_packed_weight += p_net
+                p_boxes = box_count // pallet_count + (1 if i < box_count % pallet_count else 0)
 
                 packed_pallet = PackedPallet.objects.create(
                     packed_pallet_code=packed_code,
@@ -447,6 +510,9 @@ class PackingService:
             #    - الطبالي التي بقي فيها خام تبقى «مفتوحة» ولا تُعتبر مستهلكة.
             #    - لا يُستنتج عدد الطبالي المستهلكة من الفرق بين عدد الطبالي.
             cls._recalculate_input_weight_from_consumptions(session)
+            source_weight_variances = cls._session_source_weight_variances(
+                session, settings_obj.weight_tolerance_pct
+            )
 
             leftover_pallets = cls._leftover_pallets(session)
 
@@ -543,6 +609,8 @@ class PackingService:
 
         # 4. حساب المقاييس وفحص حد السماح
         session.calculate_metrics(tolerance_pct=settings_obj.weight_tolerance_pct)
+        if source_weight_variances:
+            session.requires_manager_approval = True
 
         # 5. تحديد حالة الجلسة حسب إجابة المحاسب وفرق الوزن
         if use_allocations and all_packed is False:
@@ -554,7 +622,19 @@ class PackingService:
                 session.status = PackingSession.Status.PENDING_APPROVAL
                 Notification.objects.create(
                     title=f"توضيب بانتظار اعتماد المدير: {session.session_code}",
-                    message=f"التاجر: {session.trader.name}. فرق وزن غير مفسر: {session.unexplained_diff_kg} كغ يتطلب تدقيق واعتماد المدير.",
+                    message=(
+                        f"التاجر: {session.trader.name}. فرق الوزن الكلي: {session.unexplained_diff_kg} كغ. "
+                        + (
+                            "كما تجاوزت فروق وزن بعض الطبالي حد السماح: "
+                            + '؛ '.join(
+                                f"{item['packed_label']}: مصدر {item['input_kg']} كغ، ناتج {item['output_kg']} كغ، فرق {item['difference_kg']} كغ"
+                                for item in source_weight_variances[:5]
+                            )
+                            + ". "
+                            if source_weight_variances else ""
+                        )
+                        + " يتطلب تدقيق واعتماد المدير."
+                    ),
                     severity=Notification.Severity.CRITICAL,
                     link=f"/packing/sessions/{session.id}/",
                     related_model='PackingSession',
@@ -581,6 +661,16 @@ class PackingService:
                 'all_packed_confirmed': session.all_packed_confirmed,
                 'raw_pallets': session.source_pallets.count(),
                 'packed_pallets': session.packed_pallets.count(),
+                'source_weight_variances': [
+                    {
+                        **item,
+                        'input_kg': str(item['input_kg']),
+                        'output_kg': str(item['output_kg']),
+                        'difference_kg': str(item['difference_kg']),
+                        'variance_pct': str(item['variance_pct']),
+                    }
+                    for item in source_weight_variances
+                ],
             }
         )
 
@@ -640,13 +730,15 @@ class PackingService:
                         f"الطبلية {pallet.pallet_code} تحمل بضاعة ({pallet.crop.name}) "
                         f"مختلفة عن بضاعة العملية ({session.crop.name})."
                     )
-                if pallet.status not in (
-                    Pallet.Status.IN_COOLING,
-                    Pallet.Status.OUT_FOR_PACKING,
-                    Pallet.Status.OPEN_PARTIAL,
-                ):
+                already_in_session = session.source_pallets.filter(pk=pallet.pk).exists()
+                if pallet.status == Pallet.Status.IN_COOLING:
+                    pass  # A cold-store pallet may be drawn directly by this transaction.
+                elif pallet.status in (Pallet.Status.OUT_FOR_PACKING, Pallet.Status.OPEN_PARTIAL) and already_in_session:
+                    pass  # Reserved by this session, including its partial remainder.
+                else:
                     raise ValidationError(
-                        f"الطبلية {pallet.pallet_code} غير متاحة للصرف حالياً (حالتها: {pallet.get_status_display()})."
+                        f"الطبلية {pallet.pallet_code} غير متاحة لهذه العملية حالياً "
+                        f"(حالتها: {pallet.get_status_display()})."
                     )
 
                 per_row.append([pallet, boxes])
@@ -669,6 +761,44 @@ class PackingService:
                     "لا يجوز صرف الصناديق نفسها مرتين أو تجاوز الرصيد المتاح."
                 )
         return plan
+
+    @classmethod
+    def _session_source_weight_variances(cls, session, tolerance_pct):
+        """Find per-pallet source/output weight differences beyond the configured tolerance."""
+        variances = []
+        for packed in session.packed_pallets.all():
+            consumptions = list(
+                PackingRawConsumption.objects.filter(packed_pallet=packed).select_related('source_pallet')
+            )
+            if not consumptions:
+                continue
+            input_weight = sum(
+                (item.estimated_weight_kg for item in consumptions), Decimal('0.000')
+            ).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
+            output_weight = Decimal(packed.net_weight_kg).quantize(
+                Decimal('0.001'), rounding=ROUND_HALF_UP
+            )
+            difference = (input_weight - output_weight).quantize(
+                Decimal('0.001'), rounding=ROUND_HALF_UP
+            )
+            variance_pct = (
+                abs(difference) * Decimal('100') / input_weight
+                if input_weight > 0 else (Decimal('100') if difference else Decimal('0'))
+            )
+            exceeds_tolerance = (
+                difference != 0 if tolerance_pct is None else variance_pct > Decimal(tolerance_pct)
+            )
+            if not exceeds_tolerance:
+                continue
+            source_codes = ' + '.join(dict.fromkeys(item.source_pallet.pallet_code for item in consumptions))
+            variances.append({
+                'packed_label': f"{packed.packed_pallet_code} (مصدر: {source_codes})",
+                'input_kg': input_weight,
+                'output_kg': output_weight,
+                'difference_kg': difference,
+                'variance_pct': variance_pct.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
+            })
+        return variances
 
     @classmethod
     def _split_sources(cls, sources, parts):
@@ -705,7 +835,8 @@ class PackingService:
         - يحدّث حالة الطبلية: مستهلكة بالكامل (PACKED) أو مفتوحة (OPEN_PARTIAL).
         """
         total_boxes = sum(count for _, count in sources)
-        for pallet, boxes in sources:
+        remaining_net_weight = Decimal(net_weight).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
+        for source_index, (pallet, boxes) in enumerate(sources):
             locked = Pallet.objects.select_for_update().get(id=pallet.id)
 
             if boxes > locked.remaining_box_count:
@@ -714,19 +845,45 @@ class PackingService:
                     f"تتجاوز الرصيد المتاح ({locked.remaining_box_count} صندوق)."
                 )
 
-            # نصيب الطبلية من وزنها التقديري (بحسب نسبة الصناديق المسحوبة)
-            if locked.box_count:
-                est_ratio = Decimal(boxes) / Decimal(locked.box_count)
+            # وزّع وزن الناتج على مصادره بحسب عدد الصناديق، واجعل المصدر
+            # الأخير يأخذ باقي الكسور حتى يساوي مجموع السجلات وزن الطبلية تماماً.
+            if source_index == len(sources) - 1:
+                net = remaining_net_weight
+            elif total_boxes:
+                net = (
+                    Decimal(net_weight) * Decimal(boxes) / Decimal(total_boxes)
+                ).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
+                remaining_net_weight -= net
             else:
-                est_ratio = Decimal('0')
-            estimated_weight = (Decimal(locked.estimated_net_weight) * est_ratio).quantize(Decimal('0.001'))
+                net = Decimal('0.000')
 
-            # صافي وزن البضاعة المنسوبة إلى هذه الكمية (نسبةً إلى مجموع سطر الناتج)
-            if total_boxes:
-                net_ratio = Decimal(boxes) / Decimal(total_boxes)
+            # وزن الخام المنسوب يُحسب تراكمياً لكل مصدر حتى لا يؤدي التقريب
+            # إلى فقد أو زيادة أجزاء من الكيلو عند سحب المصدر على أكثر من ناتج.
+            if locked.box_count:
+                previously_recorded = PackingRawConsumption.objects.filter(
+                    source_pallet=locked
+                ).aggregate(total=Sum('estimated_weight_kg'))['total']
+                if previously_recorded is None:
+                    previously_recorded = (
+                        Decimal(locked.estimated_net_weight)
+                        * Decimal(locked.consumed_box_count)
+                        / Decimal(locked.box_count)
+                    ).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
+                target_consumed_boxes = min(locked.box_count, locked.consumed_box_count + boxes)
+                target_consumed_weight = (
+                    Decimal(locked.estimated_net_weight)
+                    * Decimal(target_consumed_boxes)
+                    / Decimal(locked.box_count)
+                ).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
+                if target_consumed_boxes == locked.box_count:
+                    target_consumed_weight = Decimal(locked.estimated_net_weight).quantize(
+                        Decimal('0.001'), rounding=ROUND_HALF_UP
+                    )
+                estimated_weight = max(
+                    Decimal('0.000'), target_consumed_weight - previously_recorded
+                ).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
             else:
-                net_ratio = Decimal('0')
-            net = (Decimal(net_weight) * net_ratio).quantize(Decimal('0.001'))
+                estimated_weight = Decimal('0.000')
 
             # إن كانت الطبلية ما زالت في البراد فهذه حركة صرف من موقع تخزين موثّقة
             movement = None
@@ -853,7 +1010,7 @@ class PackingService:
                     f"الطبلية {locked.pallet_code} تحمل بضاعة ({locked.crop.name}) "
                     f"مختلفة عن بضاعة العملية ({session.crop.name})."
                 )
-            if locked.status not in (Pallet.Status.IN_COOLING, Pallet.Status.OPEN_PARTIAL):
+            if locked.status != Pallet.Status.IN_COOLING:
                 raise ValidationError(
                     f"الطبلية {locked.pallet_code} غير موجودة في البراد (حالتها: {locked.get_status_display()})."
                 )
@@ -1105,6 +1262,46 @@ class PackingService:
             raise ValidationError("يجب تحديد البراد المراد إدخال الطبالي إليه.")
         if shelf is not None and shelf.cold_store_id != cold_store.id:
             raise ValidationError("السيخ المحدد لا يتبع البراد المحدد. اختر سيخاً من داخل نفس البراد.")
+
+        # Lock the shared capacity owner, then re-read all selected rows. This
+        # serializes packed and raw transfers entering the same physical store.
+        from operations.models import ColdStore, Shelf
+        cold_store = ColdStore.objects.select_for_update().get(pk=cold_store.pk)
+        pallet_ids = [p.pk for p in packed_pallets]
+        if len(pallet_ids) != len(set(pallet_ids)):
+            raise ValidationError("لا يجوز إدخال الطبلية الموضبة نفسها أكثر من مرة.")
+        packed_pallets = list(
+            PackedPallet.objects.select_for_update().filter(pk__in=pallet_ids).order_by('pk')
+        )
+        if len(packed_pallets) != len(pallet_ids):
+            raise ValidationError("إحدى الطبالي الموضبة المختارة لم تعد موجودة.")
+        if shelf is not None:
+            shelf = Shelf.objects.select_for_update().get(pk=shelf.pk)
+
+        moving_ids = [p.pk for p in packed_pallets]
+        # Selected IDs are excluded from the existing target count below, so
+        # add every selected pallet back into the resulting target occupancy.
+        entering_store = len(packed_pallets)
+        from operations.models import Pallet
+        if cold_store.capacity_pallets:
+            raw_count = Pallet.objects.filter(
+                cold_store=cold_store, status=Pallet.Status.IN_COOLING
+            ).count()
+            packed_count = PackedPallet.objects.filter(
+                cold_store=cold_store, status=PackedPallet.Status.IN_COOLING
+            ).exclude(pk__in=moving_ids).count()
+            if raw_count + packed_count + entering_store > cold_store.capacity_pallets:
+                raise ValidationError(f"البراد المستهدف ({cold_store.name}) لا يتسع للطبالي المحددة.")
+        if shelf is not None and shelf.effective_capacity:
+            raw_count = Pallet.objects.filter(
+                shelf=shelf, status=Pallet.Status.IN_COOLING
+            ).count()
+            packed_count = PackedPallet.objects.filter(
+                shelf=shelf, status=PackedPallet.Status.IN_COOLING
+            ).exclude(pk__in=moving_ids).count()
+            entering_shelf = len(packed_pallets)
+            if raw_count + packed_count + entering_shelf > shelf.effective_capacity:
+                raise ValidationError(f"السيخ «{shelf.shelf_number}» ممتلئ ولا يتسع للطبالي المحددة.")
 
         now = timezone.now()
         for p in packed_pallets:

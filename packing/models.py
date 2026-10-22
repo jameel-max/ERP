@@ -245,9 +245,11 @@ class PackingSession(models.Model):
         # مجموع الهالك
         self.waste_weight_kg = sum(w.weight_kg for w in self.wastes.all())
 
-        # الفرق غير المفسر
+        # فرق الوزن موقّع: الموجب نقص غير مفسر، والسالب يعني أن الناتج
+        # والهالك تجاوزا وزن الداخل. إخفاء الفائض كصفر كان يسمح باعتماد
+        # رندمان أكبر من 100% دون مراجعة.
         diff = self.input_weight_kg - (self.output_packed_kg + self.waste_weight_kg)
-        self.unexplained_diff_kg = max(Decimal('0.000'), diff).quantize(Decimal('0.001'))
+        self.unexplained_diff_kg = diff.quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
 
         # الرندمان
         if self.input_weight_kg > 0:
@@ -259,11 +261,13 @@ class PackingSession(models.Model):
         self.requires_manager_approval = False
         diff_pct = Decimal('0.00')
         if self.input_weight_kg > 0:
-            diff_pct = (self.unexplained_diff_kg / self.input_weight_kg) * Decimal('100.00')
+            diff_pct = (abs(self.unexplained_diff_kg) / self.input_weight_kg) * Decimal('100.00')
+        elif self.unexplained_diff_kg != 0:
+            diff_pct = Decimal('100.00')
 
         if tolerance_pct is None:
             # إذا لم يُحدد حد السماح، يمنع الاعتماد التلقائي ويتطلب اعتماد المدير
-            if self.unexplained_diff_kg > 0:
+            if self.unexplained_diff_kg != 0:
                 self.requires_manager_approval = True
         else:
             if diff_pct > tolerance_pct:

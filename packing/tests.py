@@ -18,6 +18,7 @@ from packing.models import (
     PackingRawConsumption, PackingLeftoverSettlement,
 )
 from packing.services import PackingService
+from packing.forms import StartPackingSessionForm
 from invoicing.models import Invoice, InvoiceItem
 from invoicing.services import InvoiceService
 
@@ -290,6 +291,14 @@ class Phase2ComprehensiveTests(TestCase):
         }]
         PackingService.record_outputs_and_finalize(session, outputs_data, user=self.accountant)
 
+        # The source estimate and weighed result differ beyond tolerance, so
+        # financial synchronization follows the existing manager-approval rule.
+        session.refresh_from_db()
+        if session.status == PackingSession.Status.PENDING_APPROVAL:
+            PackingService.manager_approve_session(
+                session, self.manager, 'مطابقة الوزن مع بيانات الميزان في الاختبار'
+            )
+
         # 4. مزامنة الفاتورة
         InvoiceService.sync_invoice_with_operations(invoice, user=self.accountant)
 
@@ -446,7 +455,8 @@ class Phase2ComprehensiveTests(TestCase):
         client = Client()
         client.force_login(self.accountant)
         resp = client.post(reverse('packing_edit', args=[session.pk]), {
-            'trader': self.trader2.pk,
+            # The selected source pallet belongs to trader1; mixing traders is invalid.
+            'trader': self.trader1.pk,
             'crop': self.crop.pk,
             'packing_method': PackingSession.Method.MANUAL,
             'workshop_name': 'ورشة معدّلة',
@@ -456,7 +466,7 @@ class Phase2ComprehensiveTests(TestCase):
         self.assertEqual(resp.status_code, 302)
 
         session.refresh_from_db()
-        self.assertEqual(session.trader, self.trader2)
+        self.assertEqual(session.trader, self.trader1)
         self.assertEqual(session.packing_method, PackingSession.Method.MANUAL)
         self.assertEqual(session.workshop_name, 'ورشة معدّلة')
         self.assertEqual(session.source_pallets.count(), 1)
@@ -1328,6 +1338,34 @@ class PackingQuantityLedgerTests(TestCase):
         ).quantize(Decimal('0.001'))
         self.assertEqual(session.input_weight_kg, expected_input)
 
+    def test_balanced_session_requires_review_when_per_pallet_weights_conflict(self):
+        """Opposing pallet errors must not cancel into a zero session-wide difference."""
+        self.settings.weight_tolerance_pct = Decimal('5.00')
+        self.settings.save(update_fields=['weight_tolerance_pct'])
+        session = self._start_session(self.pallets[:2])
+        outputs = [
+            self._output('S', boxes=50, weight='540.000'),  # 500 kg net from a 450 kg estimate
+            self._output('L', boxes=50, weight='440.000'),  # 400 kg net from a 450 kg estimate
+        ]
+        allocations = [
+            [{'source_pallet': self.pallets[0].id, 'box_count': 50}],
+            [{'source_pallet': self.pallets[1].id, 'box_count': 50}],
+        ]
+
+        PackingService.record_outputs_and_finalize(
+            session, outputs, allocations=allocations, all_packed=True, user=self.accountant
+        )
+        session.refresh_from_db()
+
+        self.assertEqual(session.input_weight_kg, Decimal('900.000'))
+        self.assertEqual(session.output_packed_kg, Decimal('900.000'))
+        self.assertEqual(session.unexplained_diff_kg, Decimal('0.000'))
+        self.assertTrue(session.requires_manager_approval)
+        self.assertEqual(session.status, PackingSession.Status.PENDING_APPROVAL)
+        self.assertEqual(
+            PackingRawConsumption.objects.filter(session=session).count(), 2
+        )
+
     # ---------------- 2) إكمال طبلية موضبة من طبلية في البراد ----------------
 
     def test_packed_pallet_can_be_completed_from_another_pallet_in_cold_store(self):
@@ -1394,6 +1432,45 @@ class PackingQuantityLedgerTests(TestCase):
         self.assertEqual(session.status, PackingSession.Status.INCOMPLETE)
         self.assertEqual(len(session.leftover_pallets), 1)
         self.assertEqual(session.leftover_box_count, 40)
+
+    def test_reception_pallet_weights_sum_to_the_authoritative_truck_net_weight(self):
+        """Rounding each pallet independently must not lose 0.001 kg from the truck total."""
+        truck = ReceptionService.process_truck_reception({
+            'trader': self.trader.id,
+            'crop': self.crop.id,
+            'box_type': self.farm_box.id,
+            'box_count': 420,
+            'gross_weight': Decimal('6260.000'),
+            'tare_weight': Decimal('1000.000'),
+            'pallet_count': 6,
+            'boxes_per_pallet': 80,
+            'cold_store': self.cold_store.id,
+            'shelf': self.shelf.id,
+        }, user=self.accountant)
+
+        total_pallet_weight = sum(
+            truck.pallets.values_list('estimated_net_weight', flat=True), Decimal('0.000')
+        )
+        self.assertEqual(truck.calculated_net_weight, Decimal('4864.000'))
+        self.assertEqual(total_pallet_weight, truck.calculated_net_weight)
+
+    def test_output_weight_over_input_is_signed_and_needs_manager_approval(self):
+        self.settings.weight_tolerance_pct = Decimal('1.00')
+        self.settings.save(update_fields=['weight_tolerance_pct'])
+        session = self._start_session([self.pallets[0]])
+
+        PackingService.record_outputs_and_finalize(
+            session,
+            [self._output('XL', boxes=50, weight='508.000')],
+            allocations=[[{'source_pallet': self.pallets[0].id, 'box_count': 50}]],
+            all_packed=True,
+            user=self.accountant,
+        )
+        session.refresh_from_db()
+
+        self.assertEqual(session.unexplained_diff_kg, Decimal('-18.000'))
+        self.assertTrue(session.requires_manager_approval)
+        self.assertEqual(session.status, PackingSession.Status.PENDING_APPROVAL)
 
     # ---------------- 4) صحة أرصدة كل مصدر ----------------
 
@@ -1784,5 +1861,88 @@ class PackingQuantityLedgerTests(TestCase):
         pallet.refresh_from_db()
         self.assertEqual(pallet.remaining_box_count, 50)
         self.assertEqual(pallet.consumed_box_count, 0)
+
+    def test_reserved_and_fully_consumed_raw_pallets_are_not_selectable_again(self):
+        pallet = self.pallets[0]
+        session = self._start_session([pallet])
+        pallet.refresh_from_db()
+        self.assertEqual(pallet.status, Pallet.Status.OUT_FOR_PACKING)
+        form = StartPackingSessionForm()
+        self.assertNotIn(pallet.pk, form.fields['source_pallets'].queryset.values_list('pk', flat=True))
+        with self.assertRaises(ValidationError):
+            self._start_session([pallet])
+
+        PackingService.record_outputs_and_finalize(
+            session, [self._output(boxes=50, weight='450.000')],
+            allocations=[[{'source_pallet': pallet.pk, 'box_count': 50}]],
+            all_packed=True, user=self.accountant,
+        )
+        pallet.refresh_from_db()
+        self.assertEqual(pallet.remaining_box_count, 0)
+        self.assertEqual(pallet.status, Pallet.Status.PACKED)
+        self.assertNotIn(pallet.pk, StartPackingSessionForm().fields['source_pallets'].queryset.values_list('pk', flat=True))
+
+    def test_source_picker_filters_by_selected_trader_and_crop(self):
+        other_trader = Trader.objects.create(code='T101', name='تاجر آخر')
+        other_crop = Crop.objects.create(name='خوخ')
+        other_truck = ReceptionService.process_truck_reception({
+            'trader': other_trader.pk,
+            'crop': other_crop.pk,
+            'box_type': self.farm_box.pk,
+            'box_count': 50,
+            'gross_weight': Decimal('1000.000'),
+            'tare_weight': Decimal('500.000'),
+            'pallet_count': 1,
+            'cold_store': self.cold_store.pk,
+            'shelf': self.shelf.pk,
+        }, user=self.accountant)
+
+        form = StartPackingSessionForm(data={
+            'trader': self.trader.pk,
+            'crop': self.crop.pk,
+        })
+        available_ids = set(form.fields['source_pallets'].queryset.values_list('pk', flat=True))
+        self.assertEqual(available_ids, {p.pk for p in self.pallets})
+        self.assertNotIn(other_truck.pallets.first().pk, available_ids)
+
+    def test_cold_store_occupancy_and_shelf_totals_include_raw_and_packed(self):
+        # The fixture starts with four raw pallets; add four more to reach the
+        # requested 8 raw + 5 packed scenario.
+        for i in range(4):
+            truck = ReceptionService.process_truck_reception({
+                'trader': self.trader.id,
+                'crop': self.crop.id,
+                'box_type': self.farm_box.id,
+                'box_count': 50,
+                'gross_weight': Decimal('1000.000'),
+                'tare_weight': Decimal('500.000'),
+                'pallet_count': 1,
+                'cold_store': self.cold_store.id,
+                'shelf': self.shelf.id,
+            }, user=self.accountant)
+            truck.refresh_from_db()
+
+        session = PackingSession.objects.create(
+            session_code='TEST-PACKED-COLD-STORE', trader=self.trader, crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE, created_by=self.accountant,
+        )
+        for i in range(5):
+            PackedPallet.objects.create(
+                packed_pallet_code=f'TEST-PACKED-{i}', original_pallet=self.pallets[0],
+                session=session, trader=self.trader, crop=self.crop, size_name='XL',
+                box_type=self.box, box_count=10, net_weight_kg=Decimal('100.000'),
+                status=PackedPallet.Status.IN_COOLING, cold_store=self.cold_store, shelf=self.shelf,
+            )
+
+        self.assertEqual(self.cold_store.occupied_pallets, 8)
+        self.assertEqual(self.cold_store.packed_occupied_pallets, 5)
+        self.assertEqual(self.cold_store.total_occupied_pallets, 13)
+        self.assertEqual(self.shelf.total_occupied_pallets, 13)
+        self.client.force_login(self.accountant)
+        response = self.client.get(reverse('cold_store_list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'إجمالي الإشغال: 13')
+        self.assertContains(response, 'موضبة')
+        self.assertContains(response, 'خام')
 
 

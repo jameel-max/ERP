@@ -246,7 +246,9 @@ class Phase1ComprehensiveTests(TestCase):
         self.assertEqual(self.shelf2_1.occupied_pallets, 1)
 
         # التحقق من تسجيل الحركة في PalletMovementLog
-        last_move = PalletMovementLog.objects.filter(pallet=pallet1).order_by('-timestamp').first()
+        # Timestamp precision may tie within one transaction; pk preserves the
+        # actual insertion order for the audit assertion.
+        last_move = PalletMovementLog.objects.filter(pallet=pallet1).order_by('-timestamp', '-pk').first()
         self.assertEqual(last_move.from_cold_store, self.cold_store1)
         self.assertEqual(last_move.to_cold_store, self.cold_store2)
         self.assertEqual(last_move.movement_type, 'TRANSFER')

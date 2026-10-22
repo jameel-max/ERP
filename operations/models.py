@@ -811,7 +811,9 @@ class Pallet(models.Model):
         """الوزن التقديري المتبقي في الطبلية بعد خصم ما استُهلك منها."""
         if not self.box_count:
             return Decimal('0.000')
-        return (Decimal(self.estimated_net_weight) * self.remaining_ratio).quantize(Decimal('0.001'))
+        return (Decimal(self.estimated_net_weight) * self.remaining_ratio).quantize(
+            Decimal('0.001'), rounding=ROUND_HALF_UP
+        )
 
     @property
     def days_in_cooling(self):

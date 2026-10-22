@@ -5,12 +5,14 @@ from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.http import JsonResponse
+from django.db.models import Q
 from decimal import Decimal
 import json
 
 from core.ajax import is_ajax, ajax_response
 from core.permissions import accountant_required, manager_required
 from core.models import AuditLog, SystemSetting
+from core.pagination import paginate
 from operations.models import BoxType, Pallet, Trader, ColdStore, Shelf, PackagingGroup
 from boxes.models import FarmBoxType
 from operations.qr_utils import generate_qr_base64, build_scan_url
@@ -28,7 +30,13 @@ from .services import PackingService
 @login_required
 def packing_list(request):
     sessions = PackingSession.objects.select_related('trader', 'crop', 'created_by').order_by('-started_at')
-    return render(request, 'packing/packing_list.html', {'sessions': sessions})
+    query = (request.GET.get('q') or '').strip()
+    if query:
+        sessions = sessions.filter(
+            Q(session_code__icontains=query) | Q(trader__name__icontains=query) | Q(crop__name__icontains=query)
+        )
+    page = paginate(request, sessions)
+    return render(request, 'packing/packing_list.html', {**page, 'sessions': page['page_obj'], 'query': query})
 
 
 @login_required
@@ -59,7 +67,12 @@ def packing_start(request):
             initial['trader'] = request.GET.get('trader')
         form = StartPackingSessionForm(initial=initial)
 
-    return render(request, 'packing/packing_start.html', {'form': form, 'title': 'بدء جلسة توضيب جديدة'})
+    available_source_count = form.fields['source_pallets'].queryset.count()
+    return render(request, 'packing/packing_start.html', {
+        'form': form,
+        'title': 'بدء جلسة توضيب جديدة',
+        'available_source_count': available_source_count,
+    })
 
 
 @login_required
@@ -102,6 +115,26 @@ def packing_detail(request, pk):
             'source_pallet', 'packed_pallet', 'trader', 'crop', 'cold_store', 'shelf', 'created_by'
         ).order_by('id')
     )
+    estimated_input_by_packed = {}
+    for consumption in raw_consumptions:
+        estimated_input_by_packed[consumption.packed_pallet_id] = (
+            estimated_input_by_packed.get(consumption.packed_pallet_id, Decimal('0.000'))
+            + consumption.estimated_weight_kg
+        )
+    packed_weight_checks = []
+    for packed in session.packed_pallets.all():
+        estimated_input = estimated_input_by_packed.get(packed.pk)
+        if estimated_input is None:
+            continue
+        estimated_input = estimated_input.quantize(Decimal('0.001'))
+        difference = (estimated_input - packed.net_weight_kg).quantize(Decimal('0.001'))
+        packed_weight_checks.append({
+            'packed_pallet': packed,
+            'estimated_input_kg': estimated_input,
+            'output_net_kg': packed.net_weight_kg,
+            'difference_kg': difference,
+            'is_overweight': difference < 0,
+        })
 
     # ---- الطبالي المصدر مع أرصدتها ----
     source_pallets = list(session.source_pallets.all())
@@ -113,9 +146,12 @@ def packing_detail(request, pk):
     # ---- الطبالي المؤهلة لتكون مصدر سحب (لإكمال طبلية موضبة من البراد) ----
     allocatable_pallets = list(
         Pallet.objects.filter(
+            Q(status=Pallet.Status.IN_COOLING) | Q(
+                packing_sessions=session,
+                status__in=[Pallet.Status.OUT_FOR_PACKING, Pallet.Status.OPEN_PARTIAL],
+            ),
             trader_id=session.trader_id,
             crop_id=session.crop_id,
-            status__in=[Pallet.Status.IN_COOLING, Pallet.Status.OUT_FOR_PACKING, Pallet.Status.OPEN_PARTIAL],
             remaining_box_count__gt=0,
         ).order_by('pallet_code')
     )
@@ -132,6 +168,7 @@ def packing_detail(request, pk):
         'packed_pallets_with_qr': packed_pallets_with_qr,
         'farm_box_types': farm_box_types,
         'raw_consumptions': raw_consumptions,
+        'packed_weight_checks': packed_weight_checks,
         'source_pallets': source_pallets,
         'source_pallet_ids': source_pallet_ids,
         'leftover_pallets': leftover_pallets,
@@ -358,7 +395,7 @@ def packing_add_raw(request, pk):
     candidates = Pallet.objects.filter(
         trader_id=session.trader_id,
         crop_id=session.crop_id,
-        status__in=[Pallet.Status.IN_COOLING, Pallet.Status.OPEN_PARTIAL],
+        status=Pallet.Status.IN_COOLING,
     ).exclude(id__in=session.source_pallets.values_list('id', flat=True)).order_by('pallet_code')
 
     return render(request, 'packing/packing_add_raw.html', {
@@ -496,8 +533,15 @@ def packed_pallets_list(request):
     ).prefetch_related('cooling_logs').order_by('-created_at')
     if status_filter in dict(PackedPallet.Status.choices):
         pallets = pallets.filter(status=status_filter)
+    query = (request.GET.get('q') or '').strip()
+    if query:
+        pallets = pallets.filter(
+            Q(packed_pallet_code__icontains=query) | Q(trader__name__icontains=query)
+            | Q(crop__name__icontains=query) | Q(size_name__icontains=query)
+        )
+    page = paginate(request, pallets)
     return render(request, 'packing/packed_pallets_list.html', {
-        'pallets': pallets,
+        **page, 'pallets': page['page_obj'], 'query': query,
         'status_filter': status_filter,
         'status_choices': PackedPallet.Status.choices,
         'cooling_rate': SystemSetting.get_settings().packed_cooling_daily_rate,
@@ -709,7 +753,14 @@ def cooling_statement(request):
 @login_required
 def delivery_notes_list(request):
     notes = DeliveryNote.objects.select_related('trader', 'created_by').order_by('-delivery_date', '-created_at')
-    return render(request, 'packing/delivery_notes_list.html', {'notes': notes})
+    query = (request.GET.get('q') or '').strip()
+    if query:
+        notes = notes.filter(
+            Q(delivery_number__icontains=query) | Q(trader__name__icontains=query)
+            | Q(truck_plate__icontains=query) | Q(driver_name__icontains=query)
+        )
+    page = paginate(request, notes)
+    return render(request, 'packing/delivery_notes_list.html', {**page, 'notes': page['page_obj'], 'query': query})
 
 
 @login_required

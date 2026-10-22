@@ -36,6 +36,11 @@
                                 <label class="form-label fw-bold text-success">
                                     <i class="bi bi-snow2 me-1"></i> اختر الطبالي الموجودة في البراد لإخراجها للتوضيب *
                                 </label>
+                                {% if available_source_count == 0 %}
+                                <div class="alert alert-warning py-2" role="status">
+                                    لا توجد حالياً طبالي خام متاحة للتوضيب. استلم البضاعة أولاً وسجّل طباليها في البراد، ثم حدّث هذه الصفحة.
+                                </div>
+                                {% endif %}
                                 {{ form.source_pallets }}
                                 <small class="text-muted">اضغط زر Ctrl لاختيار أكثر من طبلية معاً. سيتم تحديث حالة الطبالي المختارة فوراً إلى "خرجت للتوضيب".</small>
                             </div>

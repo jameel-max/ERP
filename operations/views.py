@@ -13,6 +13,7 @@ import json
 from core.permissions import accountant_required, manager_required, write_required
 from core.utils import save_form_transactionally
 from core.models import Notification, AuditLog, SystemSetting
+from core.pagination import paginate
 from .models import Trader, Crop, BoxType, ColdStore, Shelf, TruckReceipt, Pallet, PalletMovementLog, TraderPackingRate, ColdStoreTemperatureLog, PackagingGroup, annotate_shelf_occupancy
 from .forms import (
     TraderForm, TraderPackingRateForm, BoxTypeForm, CropForm,
@@ -39,7 +40,10 @@ def trader_list(request):
         traders = traders.filter(
             Q(name__icontains=query) | Q(code__icontains=query) | Q(phone__icontains=query)
         ).order_by('name')
-    return render(request, 'operations/trader_list.html', {'traders': traders, 'query': query})
+    page = paginate(request, traders)
+    return render(request, 'operations/trader_list.html', {
+        **page, 'traders': page['page_obj'], 'query': query,
+    })
 
 
 @login_required
@@ -165,7 +169,10 @@ def truck_list(request):
         if parsed:
             trucks = trucks.filter(arrival_date=parsed)
 
-    return render(request, 'operations/truck_list.html', {'trucks': trucks})
+    page = paginate(request, trucks)
+    return render(request, 'operations/truck_list.html', {
+        **page, 'trucks': page['page_obj'],
+    })
 
 
 def _shelves_snapshot():
@@ -181,7 +188,7 @@ def _shelves_snapshot():
     data = []
     for shelf in shelves:
         capacity = shelf.effective_capacity
-        occupied = shelf.occupied_pallets
+        occupied = shelf.total_occupied_pallets
         free = max(0, capacity - occupied) if capacity else None
         data.append({
             'id': shelf.id,
@@ -424,6 +431,12 @@ def cold_store_list(request):
         .annotate(c=Count('id'))
         .values_list('cold_store_id', 'c')
     )
+    packed_occupied_by_store = dict(
+        PackedPallet.objects.filter(status=PackedPallet.Status.IN_COOLING)
+        .values_list('cold_store_id')
+        .annotate(c=Count('id'))
+        .values_list('cold_store_id', 'c')
+    )
 
     # أسياخ كل البرادات مع سعتها الفعلية والمتاح فيها (استعلامات مجمّعة لمنع N+1)
     shelves_by_store = {}
@@ -446,24 +459,43 @@ def cold_store_list(request):
             packed_pallets = packed_by_shelf.get(shelf.id, [])
             store_packed_count += len(packed_pallets)
 
-            total_boxes = sum(p.box_count for p in pallets)
+            raw_boxes = sum(p.remaining_box_count for p in pallets)
+            packed_boxes = sum(p.box_count for p in packed_pallets)
+            raw_count = len(pallets)
+            packed_count = len(packed_pallets)
             store_shelves.append({
                 'shelf': shelf,
                 'pallets': pallets,
-                'pallet_count': len(pallets),
-                'total_boxes': total_boxes,
+                'pallet_count': raw_count,
+                'raw_pallet_count': raw_count,
+                'packed_pallet_count': packed_count,
+                'total_pallet_count': raw_count + packed_count,
+                'total_boxes': raw_boxes + packed_boxes,
+                'raw_boxes': raw_boxes,
+                'packed_boxes': packed_boxes,
                 'packed_pallets': packed_pallets,
                 'capacity': shelf.effective_capacity,
                 'free': shelf.free_pallets,
             })
+        unassigned_raw = pallets_by_shelf.get(None, [])
+        unassigned_raw = [p for p in unassigned_raw if p.cold_store_id == store.id]
+        for p in unassigned_raw:
+            p.trader_color = trader_colors.get(p.trader_id, '#1B4D3E')
+        unassigned_packed = [
+            p for p in packed_by_shelf.get(None, []) if p.cold_store_id == store.id
+        ]
         occupied_count = occupied_by_store.get(store.id, 0)
+        packed_count = packed_occupied_by_store.get(store.id, 0)
         shelves_data.append({
             'store': store,
             'shelves': store_shelves,
-            'occupied': occupied_count,
-            'packed_occupied': store_packed_count,
+            'unassigned_raw': unassigned_raw,
+            'unassigned_packed': unassigned_packed,
+            'occupied': occupied_count + packed_count,
+            'raw_occupied': occupied_count,
+            'packed_occupied': packed_count,
             'occupancy_rate': (
-                round((occupied_count / store.capacity_pallets) * 100, 1)
+                round(((occupied_count + packed_count) / store.capacity_pallets) * 100, 1)
                 if store.capacity_pallets and store.capacity_pallets > 0 else None
             ),
         })

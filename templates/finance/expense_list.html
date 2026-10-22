@@ -19,6 +19,12 @@
         </div>
     </div>
 
+    <form method="get" class="row g-2 mb-3" role="search">
+        <div class="col-md-6"><input type="search" name="q" value="{{ query }}" class="form-control" placeholder="البيان أو المستفيد أو التصنيف" aria-label="البحث في المصاريف"></div>
+        <div class="col-auto"><button class="btn btn-outline-success" type="submit"><i class="bi bi-search me-1"></i> بحث</button></div>
+        {% if query %}<div class="col-auto"><a class="btn btn-outline-secondary" href="{% url 'expense_list' %}">مسح البحث</a></div>{% endif %}
+    </form>
+
     <div class="card shadow-sm">
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
@@ -57,7 +63,10 @@
                         <td>
                             <div class="d-flex flex-wrap gap-1">
                                 {% if not e.is_approved and e.status != 'CANCELLED' %}
-                                <a href="{% url 'expense_approve' e.pk %}" class="btn btn-sm btn-outline-success"><i class="bi bi-check2-circle me-1"></i> اعتماد</a>
+                                <form method="post" action="{% url 'expense_approve' e.pk %}" class="d-inline">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-check2-circle me-1"></i> اعتماد</button>
+                                </form>
                                 {% endif %}
                                 {% if e.status != 'CANCELLED' %}
                                 <form method="post" action="{% url 'expense_cancel' e.pk %}" class="d-inline"
@@ -77,7 +86,7 @@
                     {% empty %}
                     <tr>
                         <td colspan="9" class="text-center py-4 text-muted">
-                            لا توجد مصاريف مسجلة بعد. <a href="{% url 'expense_create' %}" class="text-success fw-bold">سجّل أول مصروف</a>.
+                            {% if query %}لا توجد نتائج مطابقة. <a href="{% url 'expense_list' %}" class="text-success fw-bold">امسح البحث</a>{% else %}لا توجد مصاريف مسجلة بعد. <a href="{% url 'expense_create' %}" class="text-success fw-bold">سجّل أول مصروف</a>.{% endif %}
                         </td>
                     </tr>
                     {% endfor %}
@@ -85,5 +94,6 @@
             </table>
         </div>
     </div>
+    {% include "core/_pagination.html" %}
 </div>
 {% endblock %}

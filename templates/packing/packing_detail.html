@@ -57,7 +57,7 @@
                     الوزن الصافي الداخل: <strong>{{ session.input_weight_kg }} كغ</strong> |
                     الوزن الموضب: <strong>{{ session.output_packed_kg }} كغ</strong> |
                     الهالك: <strong>{{ session.waste_weight_kg }} كغ</strong> |
-                    <strong class="text-decoration-underline">فرق الوزن غير المفسر: {{ session.unexplained_diff_kg }} كغ</strong>.
+                    <strong class="text-decoration-underline">فرق الوزن الموقّع (السالب يعني زيادة): {{ session.unexplained_diff_kg }} كغ</strong>.
                 </p>
             </div>
             {% if user.is_manager %}
@@ -109,7 +109,7 @@
             <div class="bg-white p-3 rounded border shadow-sm border-primary">
                 <span class="text-primary small fw-bold">نسبة الرندمان % (الموضب ÷ الداخل)</span>
                 <h3 class="fw-bold my-1 text-primary">{{ session.randeman_pct }}%</h3>
-                <small class="text-muted">فرق غير مفسر: {{ session.unexplained_diff_kg }} كغ</small>
+                <small class="text-muted">فرق الوزن: {{ session.unexplained_diff_kg }} كغ (السالب يعني أن الناتج والهالك تجاوزا وزن الداخل)</small>
             </div>
         </div>
     </div>
@@ -442,6 +442,45 @@
                         </td>
                     </tr>
                     {% endwith %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if packed_weight_checks %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom py-3">
+            <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-speedometer2 text-primary me-2"></i>مراجعة وزن كل طبلية موضبة مقابل الخام المخصص لها</h5>
+            <small class="text-muted">وزن الخام تقديري بحسب وزن الاستلام وعدد الصناديق؛ أي تجاوز يحتاج مراجعة وصل الميزان وتوزيع المصادر.</small>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>الطبلية الموضبة</th>
+                        <th>وزن الخام المخصص التقديري</th>
+                        <th>الوزن الصافي الموضب المقاس</th>
+                        <th>الفرق (خام − موضب)</th>
+                        <th>المراجعة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for check in packed_weight_checks %}
+                    <tr class="{% if check.is_overweight %}table-danger{% endif %}">
+                        <td class="fw-bold">{{ check.packed_pallet.packed_pallet_code }}</td>
+                        <td>{{ check.estimated_input_kg }} كغ</td>
+                        <td>{{ check.output_net_kg }} كغ</td>
+                        <td class="{% if check.is_overweight %}text-danger fw-bold{% endif %}">{{ check.difference_kg }} كغ</td>
+                        <td>
+                            {% if check.is_overweight %}
+                            <span class="badge bg-danger">الناتج أكبر من الخام المخصص</span>
+                            {% else %}
+                            <span class="badge bg-secondary">راجع الفرق مع بقية النواتج والهالك</span>
+                            {% endif %}
+                        </td>
+                    </tr>
                     {% endfor %}
                 </tbody>
             </table>

@@ -14,6 +14,12 @@
         </a>
     </div>
 
+    <form method="get" class="row g-2 mb-3" role="search">
+        <div class="col-md-6"><input type="search" name="q" value="{{ query }}" class="form-control" placeholder="رقم الشيك أو البنك أو اسم/رمز التاجر" aria-label="البحث في الشيكات"></div>
+        <div class="col-auto"><button class="btn btn-outline-success" type="submit"><i class="bi bi-search me-1"></i> بحث</button></div>
+        {% if query %}<div class="col-auto"><a class="btn btn-outline-secondary" href="{% url 'check_list' %}">مسح البحث</a></div>{% endif %}
+    </form>
+
     <div class="card shadow-sm">
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
@@ -68,6 +74,7 @@
             </table>
         </div>
     </div>
+    {% include "core/_pagination.html" %}
 
     <!-- نوافذ تحصيل وارتجاع الشيكات -->
     {% for c in checks %}

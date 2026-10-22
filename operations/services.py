@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -59,7 +59,8 @@ def distribute_pallets_over_shelves(cold_store, start_shelf, pallet_count):
             assignments.append((shelf, left))
             left = 0
             break
-        free = max(0, capacity - shelf.occupied_pallets)
+        # Raw and packed pallets share the same physical shelf capacity.
+        free = max(0, capacity - shelf.total_occupied_pallets)
         if free <= 0:
             continue  # سيخ ممتلئ: تجاهله
         take = min(free, left)
@@ -235,6 +236,12 @@ class ReceptionService:
                 rem = box_count % pallet_count
                 distribution = [base_boxes + (1 if i < rem else 0) for i in range(pallet_count)]
 
+        if len(distribution) != pallet_count or sum(distribution) != box_count:
+            raise ValidationError(
+                "توزيع الصناديق على الطبالي لا يطابق عدد الصناديق المستلمة. "
+                "راجع التوزيع قبل حفظ الاستلام."
+            )
+
         # توزيع الطبالي على أسياخ البراد: يبدأ من السيخ المختار وينتقل للسيخ التالي
         # عند امتلائه، ولا يستخدم الأسياخ الممتلئة أبداً.
         shelf_sequence = [truck.shelf] * pallet_count
@@ -257,15 +264,25 @@ class ReceptionService:
 
         total_net_weight = truck.calculated_net_weight
 
+        allocated_net_weight = Decimal('0.000')
         for idx, boxes_on_pallet in enumerate(distribution, start=1):
             pallet_code = f"{truck.lot_number}-P{idx:02d}"
             sscc = Pallet.generate_sscc(pallet_code)
             assigned_shelf = shelf_sequence[idx - 1] if idx - 1 < len(shelf_sequence) else truck.shelf
 
-            # وزن تقديري نسبي
-            est_weight = Decimal('0.000')
-            if box_count > 0:
-                est_weight = (total_net_weight * Decimal(boxes_on_pallet) / Decimal(box_count)).quantize(Decimal('0.001'))
+            # وزّع الصافي نسبياً، واجعل الطبلية الأخيرة تأخذ باقي الكسور
+            # حتى يساوي مجموع أوزان الطبالي وزن السيارة المعتمد تماماً.
+            if idx == pallet_count:
+                est_weight = (total_net_weight - allocated_net_weight).quantize(
+                    Decimal('0.001'), rounding=ROUND_HALF_UP
+                )
+            elif box_count > 0:
+                est_weight = (
+                    total_net_weight * Decimal(boxes_on_pallet) / Decimal(box_count)
+                ).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
+                allocated_net_weight += est_weight
+            else:
+                est_weight = Decimal('0.000')
 
             pallet = Pallet.objects.create(
                 pallet_code=pallet_code,
@@ -310,6 +327,9 @@ class StorageService:
         if to_shelf and to_shelf.cold_store_id != to_cold_store.id:
             raise ValidationError("السيخ المختار لا ينتمي إلى هذا البراد.")
 
+        # Serialize capacity checks for all transfers entering the same store.
+        to_cold_store = ColdStore.objects.select_for_update().get(pk=to_cold_store.pk)
+        pallet = Pallet.objects.select_for_update().select_related('cold_store', 'shelf').get(pk=pallet.pk)
         old_cold_store = pallet.cold_store
         old_shelf = pallet.shelf
 
@@ -318,7 +338,11 @@ class StorageService:
 
         # فحص سعة البراد المستهدف إذا كانت محددة
         if to_cold_store.capacity_pallets:
-            current_count = Pallet.objects.filter(cold_store=to_cold_store, status='IN_COOLING').exclude(id=pallet.id).count()
+            from packing.models import PackedPallet
+            current_count = (
+                Pallet.objects.filter(cold_store=to_cold_store, status=Pallet.Status.IN_COOLING).exclude(id=pallet.id).count()
+                + PackedPallet.objects.filter(cold_store=to_cold_store, status=PackedPallet.Status.IN_COOLING).count()
+            )
             if current_count >= to_cold_store.capacity_pallets:
                 raise ValidationError(f"البراد المستهدف ({to_cold_store.name}) ممتلئ! السعة: {to_cold_store.capacity_pallets} طبلية.")
 
@@ -326,7 +350,11 @@ class StorageService:
         if to_shelf is not None:
             shelf_capacity = to_shelf.effective_capacity
             if shelf_capacity:
-                shelf_count = Pallet.objects.filter(shelf=to_shelf, status=Pallet.Status.IN_COOLING).exclude(id=pallet.id).count()
+                from packing.models import PackedPallet
+                shelf_count = (
+                    Pallet.objects.filter(shelf=to_shelf, status=Pallet.Status.IN_COOLING).exclude(id=pallet.id).count()
+                    + PackedPallet.objects.filter(shelf=to_shelf, status=PackedPallet.Status.IN_COOLING).count()
+                )
                 if shelf_count >= shelf_capacity:
                     raise ValidationError(
                         f"السيخ «{to_shelf.shelf_number}» في {to_cold_store.name} ممتلئ! "

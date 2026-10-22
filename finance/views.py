@@ -3,12 +3,13 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.http import JsonResponse
 from django.utils import timezone
-from django.db.models import Sum, Count
+from django.db.models import Sum, Count, Q
 from django.db import transaction
 from decimal import Decimal
 
 from core.permissions import accountant_required, manager_required
 from core.models import AuditLog
+from core.pagination import paginate
 from operations.models import Trader
 from .models import TreasuryAccount, Expense, ExpenseCategory, Check, Payment, InternalTransfer, TraderLedgerEntry
 from .forms import (
@@ -69,8 +70,17 @@ def treasury_account_create(request):
 
 @login_required
 def payment_list(request):
-    payments = Payment.objects.select_related('trader', 'treasury_account', 'created_by').order_by('-payment_date')
-    return render(request, 'finance/payment_list.html', {'payments': payments})
+    payments = Payment.objects.select_related('trader', 'treasury_account', 'created_by').prefetch_related(
+        'invoices'
+    ).order_by('-payment_date', '-pk')
+    query = (request.GET.get('q') or '').strip()
+    if query:
+        payments = payments.filter(
+            Q(receipt_number__icontains=query) | Q(trader__name__icontains=query)
+            | Q(trader__code__icontains=query) | Q(notes__icontains=query)
+        )
+    page = paginate(request, payments)
+    return render(request, 'finance/payment_list.html', {**page, 'payments': page['page_obj'], 'query': query})
 
 
 @login_required
@@ -112,7 +122,14 @@ def payment_create(request):
 @login_required
 def expense_list(request):
     expenses = Expense.objects.select_related('category', 'treasury_account', 'created_by').order_by('-due_date')
-    return render(request, 'finance/expense_list.html', {'expenses': expenses})
+    query = (request.GET.get('q') or '').strip()
+    if query:
+        expenses = expenses.filter(
+            Q(description__icontains=query) | Q(beneficiary__icontains=query)
+            | Q(category__name__icontains=query)
+        )
+    page = paginate(request, expenses)
+    return render(request, 'finance/expense_list.html', {**page, 'expenses': page['page_obj'], 'query': query})
 
 
 @login_required
@@ -236,6 +253,9 @@ def expense_category_quick_add(request):
 @login_required
 @manager_required
 def expense_approve(request, pk):
+    if request.method != 'POST':
+        from django.http import HttpResponseNotAllowed
+        return HttpResponseNotAllowed(['POST'])
     exp = get_object_or_404(Expense, pk=pk)
     exp.is_approved = True
     exp.approved_by = request.user
@@ -268,9 +288,16 @@ def expense_cancel(request, pk):
 @login_required
 def check_list(request):
     checks = Check.objects.select_related('trader', 'target_treasury').order_by('due_date')
+    query = (request.GET.get('q') or '').strip()
+    if query:
+        checks = checks.filter(
+            Q(check_number__icontains=query) | Q(bank_name__icontains=query)
+            | Q(trader__name__icontains=query) | Q(trader__code__icontains=query)
+        )
+    page = paginate(request, checks)
     treasury_accounts = TreasuryAccount.objects.filter(is_active=True)
     return render(request, 'finance/check_list.html', {
-        'checks': checks,
+        **page, 'checks': page['page_obj'], 'query': query,
         'treasury_accounts': treasury_accounts,
     })
 

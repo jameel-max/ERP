@@ -4,6 +4,21 @@ from .models import Trader, Crop, BoxType, ColdStore, Shelf, TruckReceipt, Trade
 from boxes.models import FarmBoxType
 
 
+class ShelfSelect(forms.Select):
+    """Carry each shelf's parent cold-store ID for dependent dropdown filtering."""
+
+    def __init__(self, store_field_id, attrs=None):
+        attrs = {**(attrs or {}), 'data-shelf-filter-store': store_field_id}
+        super().__init__(attrs)
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        shelf = getattr(value, 'instance', None)
+        if shelf is not None:
+            option['attrs']['data-store-id'] = str(shelf.cold_store_id)
+        return option
+
+
 class TraderForm(forms.ModelForm):
     class Meta:
         model = Trader
@@ -205,7 +220,7 @@ class PalletTransferForm(forms.Form):
         queryset=Shelf.objects.all(),
         required=False,
         label='السيخ / الرف المستهدف',
-        widget=forms.Select(attrs={'class': 'form-select'})
+        widget=ShelfSelect('id_to_cold_store', attrs={'class': 'form-select'})
     )
     reason = forms.CharField(
         max_length=255,
@@ -213,3 +228,20 @@ class PalletTransferForm(forms.Form):
         label='سبب النقل / ملاحظات',
         widget=forms.TextInput(attrs={'class': 'form-control'})
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['to_shelf'].queryset = Shelf.objects.select_related('cold_store').order_by(
+            'cold_store__name', 'shelf_number'
+        )
+        self.fields['to_shelf'].label_from_instance = lambda shelf: (
+            f"{shelf.cold_store.name} – السيخ {shelf.shelf_number}"
+        )
+
+    def clean(self):
+        cleaned = super().clean()
+        store = cleaned.get('to_cold_store')
+        shelf = cleaned.get('to_shelf')
+        if shelf and store and shelf.cold_store_id != store.pk:
+            self.add_error('to_shelf', 'السيخ المختار لا ينتمي إلى البراد المحدد.')
+        return cleaned

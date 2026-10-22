@@ -8,6 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from core.attachments import save_uploaded_images
 from core.models import AuditLog, SystemSetting
+from core.pagination import paginate
 from core.permissions import accountant_required
 
 from .forms import ShipmentForm, ShipmentCostForm, ShipmentPaymentForm, ShipmentDocumentForm
@@ -39,7 +40,7 @@ def shipment_list(request):
     status = request.GET.get('status', '').strip()
     query = request.GET.get('q', '').strip()
 
-    shipments = TradeShipment.objects.select_related('crop', 'created_by').prefetch_related('costs', 'payments')
+    shipments = TradeShipment.objects.select_related('crop', 'created_by').prefetch_related('costs', 'payments').order_by('-created_at')
     if direction in dict(TradeShipment.Direction.choices):
         shipments = shipments.filter(direction=direction)
     if status in dict(TradeShipment.Status.choices):
@@ -73,8 +74,9 @@ def shipment_list(request):
         ),
     }
 
+    page = paginate(request, shipments)
     return render(request, 'trade/shipment_list.html', {
-        'shipments': shipments,
+        **page, 'shipments': page['page_obj'],
         'kpis': kpis,
         'direction': direction,
         'status': status,

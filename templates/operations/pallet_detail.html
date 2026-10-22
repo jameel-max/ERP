@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% load attachments_tags %}
+{% load static %}
 
 {% block title %}تفاصيل الطبلية: {{ pallet.pallet_code }} | {{ company_name_en }}{% endblock %}
 
@@ -185,4 +186,8 @@
 
     {% attachments pallet %}
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/shelf-store-filter.js' %}"></script>
 {% endblock %}

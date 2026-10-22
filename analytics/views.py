@@ -45,7 +45,7 @@ def analytics_dashboard(request):
     for cs in cold_stores:
         store_occupancy.append({
             'name': cs.name,
-            'occupied': cs.occupied_pallets,
+            'occupied': cs.total_occupied_pallets,
             'capacity': cs.capacity_pallets or 50,
             'rate': cs.occupancy_rate or 0
         })
@@ -185,7 +185,7 @@ def _build_daily_report_context(request):
     for cs in annotate_cold_store_occupancy(ColdStore.objects.all()):
         store_occupancy.append({
             'name': cs.name,
-            'occupied': cs.occupied_pallets,
+            'occupied': cs.total_occupied_pallets,
             'capacity': cs.capacity_pallets or 0,
             'rate': cs.occupancy_rate or 0,
         })

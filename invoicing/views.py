@@ -3,11 +3,13 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
 from django.db import transaction
+from django.db.models import Q
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 
 from core.permissions import accountant_required, manager_required
 from core.models import AuditLog, SystemSetting
+from core.pagination import paginate
 from operations.models import Trader, Crop, TraderPackingRate, TruckReceipt
 from .models import Invoice, InvoiceItem
 from .forms import InvoiceForm, LinkTruckToInvoiceForm
@@ -17,13 +19,26 @@ from .services import InvoiceService
 @login_required
 def invoice_list(request):
     invoices = Invoice.objects.select_related('trader', 'crop', 'created_by').order_by('-year', '-created_at')
-    year = request.GET.get('year')
-    trader_id = request.GET.get('trader')
-    if year:
+    year = (request.GET.get('year') or '').strip()
+    trader_id = (request.GET.get('trader') or '').strip()
+    query = (request.GET.get('q') or '').strip()
+    if year.isdigit():
         invoices = invoices.filter(year=year)
-    if trader_id:
+    else:
+        year = ''
+    if trader_id.isdigit():
         invoices = invoices.filter(trader_id=trader_id)
-    return render(request, 'invoicing/invoice_list.html', {'invoices': invoices})
+    else:
+        trader_id = ''
+    if query:
+        invoices = invoices.filter(
+            Q(invoice_number__icontains=query) | Q(trader__name__icontains=query) | Q(crop__name__icontains=query)
+        )
+    page = paginate(request, invoices)
+    return render(request, 'invoicing/invoice_list.html', {
+        **page, 'invoices': page['page_obj'], 'query': query,
+        'year_filter': year or '', 'trader_filter': trader_id or '',
+    })
 
 
 @login_required

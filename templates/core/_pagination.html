@@ -1,0 +1,18 @@
+{% if page_obj %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 px-3 py-3 border-top">
+    <small class="text-muted">عرض {{ result_start }}–{{ result_end }} من {{ total_count }}</small>
+    {% if page_obj.paginator.num_pages > 1 %}
+    <nav aria-label="التنقل بين صفحات النتائج">
+        <ul class="pagination pagination-sm mb-0">
+            {% if previous_url %}<li class="page-item"><a class="page-link" href="{{ previous_url }}" aria-label="الصفحة السابقة">السابق</a></li>{% endif %}
+            {% for item in page_links %}
+            <li class="page-item{% if item.current %} active{% endif %}">
+                <a class="page-link" href="{{ item.url }}"{% if item.current %} aria-current="page"{% endif %}>{{ item.number }}</a>
+            </li>
+            {% endfor %}
+            {% if next_url %}<li class="page-item"><a class="page-link" href="{{ next_url }}" aria-label="الصفحة التالية">التالي</a></li>{% endif %}
+        </ul>
+    </nav>
+    {% endif %}
+</div>
+{% endif %}

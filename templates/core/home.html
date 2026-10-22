@@ -237,7 +237,7 @@
                                 </div>
                                 <div class="mb-2">
                                     <div class="d-flex justify-content-between small text-muted mb-1">
-                                        <span>إشغال الطبالي: <strong>{{ store.occupied_pallets }}</strong> طبلية</span>
+                                        <span>إجمالي الإشغال (خام وموضب): <strong>{{ store.total_occupied_pallets }}</strong> طبلية</span>
                                         <span>السعة المعتمدة: <strong>{% if store.capacity_pallets %}{{ store.capacity_pallets }} طبلية{% else %}غير محددة{% endif %}</strong></span>
                                     </div>
                                     <div class="progress" style="height: 12px;">
@@ -259,7 +259,7 @@
                                         <div class="bg-white p-2 rounded border small">
                                             <div class="d-flex justify-content-between fw-bold">
                                                 <span>السيخ {{ shelf.shelf_number }}</span>
-                                                <span class="badge bg-light text-dark border">{{ shelf.occupied_pallets }} طبلية</span>
+                                                <span class="badge bg-light text-dark border">{{ shelf.total_occupied_pallets }} طبلية</span>
                                             </div>
                                         </div>
                                     </div>
