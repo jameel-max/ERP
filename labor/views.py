@@ -2,13 +2,15 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
-from django.db.models import Sum
-from decimal import Decimal
+from django.db.models import Sum, Count, Q
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import date, timedelta
 
 from core.permissions import accountant_required, manager_required
 from core.models import SystemSetting
+from core.pagination import paginate
 from .models import Workshop, DailyLaborLog, Employee, EmployeeSalaryPayment, EmployeeDeduction
+from packing.models import PackingSession
 from .forms import (
     WorkshopForm, DailyLaborLogForm, EmployeeForm,
     EmployeeSalaryPaymentForm, EmployeeDeductionForm,
@@ -18,7 +20,9 @@ from .services import LaborService, EmployeeService
 
 @login_required
 def workshop_list(request):
-    workshops = Workshop.objects.prefetch_related('daily_logs').all()
+    workshops = Workshop.objects.annotate(
+        logged_workdays=Count('daily_logs__work_date', distinct=True)
+    )
     return render(request, 'labor/workshop_list.html', {'workshops': workshops})
 
 
@@ -55,7 +59,9 @@ def workshop_detail(request, pk):
     logs = workshop.daily_logs.filter(
         work_date__year=selected_year,
         work_date__month=selected_month
-    ).order_by('-work_date')
+    ).select_related('packing_session', 'packing_session__trader', 'packing_session__crop').order_by(
+        '-work_date', '-created_at'
+    )
 
     monthly_total_cost = logs.aggregate(total=Sum('total_cost'))['total'] or Decimal('0.000')
     monthly_workers_sum = logs.aggregate(total=Sum('worker_count'))['total'] or 0
@@ -94,6 +100,7 @@ def record_daily_labor(request):
             try:
                 log = LaborService.record_or_update_daily_log(
                     workshop=form.cleaned_data['workshop'],
+                    packing_session=form.cleaned_data.get('packing_session'),
                     work_date=form.cleaned_data['work_date'],
                     worker_count=form.cleaned_data['worker_count'],
                     work_hours=form.cleaned_data['work_hours'],
@@ -102,12 +109,27 @@ def record_daily_labor(request):
                     notes=form.cleaned_data['notes'],
                     user=request.user
                 )
+                if log.packing_session_id:
+                    messages.success(
+                        request,
+                        f'تم ربط يوم عمل ورشة {log.workshop.name} بعملية '
+                        f'{log.packing_session.session_code}. التكلفة: {log.total_cost} دينار.'
+                    )
+                    return redirect('packing_detail', pk=log.packing_session_id)
                 messages.success(request, f'تم توثيق يوم عمل ورشة {log.workshop.name} بتاريخ {log.work_date} بنجاح. التكلفة: {log.total_cost} دينار.')
                 return redirect('workshop_detail', pk=log.workshop.pk)
             except Exception as e:
                 messages.error(request, f'خطأ: {str(e)}')
     else:
-        form = DailyLaborLogForm(initial={'work_date': timezone.now().date()})
+        initial = {'work_date': timezone.now().date()}
+        session_id = request.GET.get('packing_session')
+        if session_id and str(session_id).isdigit():
+            session = get_object_or_404(
+                PackingSession.objects.select_related('trader', 'crop'), pk=session_id
+            )
+            initial['packing_session'] = session
+            initial['work_date'] = timezone.localtime(session.started_at).date()
+        form = DailyLaborLogForm(initial=initial)
     return render(request, 'labor/daily_log_form.html', {'form': form, 'title': 'توثيق يوم عمل ورشة'})
 
 
@@ -134,7 +156,7 @@ def labor_cost_report(request):
 
     kpis = LaborService.calculate_cost_per_kg(start_date=start_date, end_date=end_date)
 
-    workshops = Workshop.objects.prefetch_related('daily_logs').all()
+    workshops = Workshop.objects.all()
     workshop_totals = []
     for w in workshops:
         logs = w.daily_logs.filter(work_date__year=selected_year)
@@ -142,15 +164,46 @@ def labor_cost_report(request):
             logs = logs.filter(work_date__month=int(selected_month))
         workshop_totals.append({
             'workshop': w,
-            'days_count': logs.count(),
+            'days_count': logs.values('work_date').distinct().count(),
             'workers_sum': logs.aggregate(total=Sum('worker_count'))['total'] or 0,
             'total_cost': logs.aggregate(total=Sum('total_cost'))['total'] or Decimal('0.000'),
         })
+
+    session_logs = DailyLaborLog.objects.filter(
+        is_approved=True,
+        packing_session__isnull=False,
+        work_date__year=selected_year,
+    )
+    if selected_month:
+        session_logs = session_logs.filter(work_date__month=int(selected_month))
+    log_period = Q(
+        labor_logs__is_approved=True,
+        labor_logs__work_date__year=selected_year,
+    )
+    if selected_month:
+        log_period &= Q(labor_logs__work_date__month=int(selected_month))
+    packing_sessions = PackingSession.objects.filter(
+        pk__in=session_logs.values('packing_session_id'),
+    ).select_related('trader', 'crop').annotate(
+        linked_labor_cost=Sum('labor_logs__total_cost', filter=log_period),
+        linked_workdays=Count('labor_logs__work_date', filter=log_period, distinct=True),
+        linked_labor_logs=Count('labor_logs', filter=log_period, distinct=True),
+    ).order_by('-started_at', '-pk')
+    session_page = paginate(request, packing_sessions, per_page=20)
+    for session in session_page['page_obj']:
+        session.linked_labor_cost_per_kg = (
+            (session.linked_labor_cost / session.output_packed_kg).quantize(
+                Decimal('0.001'), rounding=ROUND_HALF_UP
+            )
+            if session.output_packed_kg > 0 else None
+        )
 
     context = {
         'kpis': kpis,
         'workshops': workshops,
         'workshop_totals': workshop_totals,
+        'packing_sessions': session_page['page_obj'],
+        'session_page': session_page,
         'selected_year': selected_year,
         'selected_month': int(selected_month) if selected_month else '',
     }

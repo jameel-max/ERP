@@ -5,8 +5,8 @@ from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.http import JsonResponse
-from django.db.models import Q
-from decimal import Decimal
+from django.db.models import Q, Sum
+from decimal import Decimal, ROUND_HALF_UP
 import json
 
 from core.ajax import is_ajax, ajax_response
@@ -136,6 +136,19 @@ def packing_detail(request, pk):
             'is_overweight': difference < 0,
         })
 
+    labor_logs = session.labor_logs.select_related('workshop', 'created_by').filter(
+        is_approved=True
+    ).order_by('-work_date', 'workshop__name')
+    labor_workdays = labor_logs.values('work_date').distinct().count()
+    has_labor_logs = session.labor_logs.exists()
+    session_labor_cost = labor_logs.aggregate(total=Sum('total_cost'))['total'] or Decimal('0.000')
+    session_labor_cost_per_kg = (
+        (session_labor_cost / session.output_packed_kg).quantize(
+            Decimal('0.001'), rounding=ROUND_HALF_UP
+        )
+        if session.output_packed_kg > 0 else None
+    )
+
     # ---- الطبالي المصدر مع أرصدتها ----
     source_pallets = list(session.source_pallets.all())
     source_pallet_ids = {p.id for p in source_pallets}
@@ -169,6 +182,11 @@ def packing_detail(request, pk):
         'farm_box_types': farm_box_types,
         'raw_consumptions': raw_consumptions,
         'packed_weight_checks': packed_weight_checks,
+        'labor_logs': labor_logs,
+        'labor_workdays': labor_workdays,
+        'has_labor_logs': has_labor_logs,
+        'session_labor_cost': session_labor_cost,
+        'session_labor_cost_per_kg': session_labor_cost_per_kg,
         'source_pallets': source_pallets,
         'source_pallet_ids': source_pallet_ids,
         'leftover_pallets': leftover_pallets,

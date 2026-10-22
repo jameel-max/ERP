@@ -2,6 +2,7 @@ from django import forms
 from django.utils import timezone
 from decimal import Decimal
 from .models import Workshop, DailyLaborLog, Employee, EmployeeSalaryPayment, EmployeeDeduction
+from packing.models import PackingSession
 
 
 class WorkshopForm(forms.ModelForm):
@@ -22,9 +23,16 @@ class WorkshopForm(forms.ModelForm):
 class DailyLaborLogForm(forms.ModelForm):
     class Meta:
         model = DailyLaborLog
-        fields = ['workshop', 'work_date', 'worker_count', 'work_hours', 'hourly_rate', 'transport_allowance_daily', 'notes']
+        fields = [
+            'workshop', 'packing_session', 'work_date', 'worker_count',
+            'work_hours', 'hourly_rate', 'transport_allowance_daily', 'notes',
+        ]
         widgets = {
             'workshop': forms.Select(attrs={'class': 'form-select'}),
+            'packing_session': forms.Select(attrs={
+                'class': 'form-select select2',
+                'data-placeholder': 'اختر العملية إن كان هذا اليوم يخص جلسة توضيب محددة',
+            }),
             'work_date': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
             'worker_count': forms.NumberInput(attrs={'class': 'form-control', 'min': '1'}),
             'work_hours': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.5', 'min': '0.5'}),
@@ -32,6 +40,18 @@ class DailyLaborLogForm(forms.ModelForm):
             'transport_allowance_daily': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.001'}),
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['packing_session'].required = False
+        self.fields['packing_session'].queryset = PackingSession.objects.select_related(
+            'trader', 'crop'
+        ).order_by('-started_at')
+        self.fields['packing_session'].empty_label = 'يوم عام غير مرتبط بعملية محددة'
+        self.fields['packing_session'].label_from_instance = lambda session: (
+            f'{session.session_code} — {session.trader.name} / {session.crop.name} '
+            f'— {session.get_status_display()} — {session.started_at:%Y-%m-%d}'
+        )
 
 
 class EmployeeForm(forms.ModelForm):

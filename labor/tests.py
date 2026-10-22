@@ -2,7 +2,10 @@ from django.test import TestCase
 from django.utils import timezone
 from django.urls import reverse
 from django.core.exceptions import ValidationError
+from django.db.models.deletion import ProtectedError
+from django.core.cache import cache
 from decimal import Decimal
+from datetime import date
 
 from core.models import User, SystemSetting, AuditLog
 from operations.models import Trader, Crop
@@ -22,6 +25,7 @@ class Phase3LaborTests(TestCase):
     """
 
     def setUp(self):
+        cache.clear()
         self.settings = SystemSetting.get_settings()
         self.settings.save()
         self.manager = User.objects.create_user(
@@ -109,6 +113,122 @@ class Phase3LaborTests(TestCase):
         self.assertEqual(DailyLaborLog.objects.filter(workshop=self.workshop).count(), 1)
         log = DailyLaborLog.objects.get(workshop=self.workshop)
         self.assertEqual(log.worker_count, 7)
+
+    def make_packing_session(self, code, output='100.000'):
+        return PackingSession.objects.create(
+            session_code=code, trader=self.trader, crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            output_packed_kg=Decimal(output), status=PackingSession.Status.COMPLETED,
+            created_by=self.accountant,
+        )
+
+    def test_labor_can_be_allocated_to_multiple_sessions_without_collisions(self):
+        day = timezone.now().date()
+        first = self.make_packing_session('PS-LABOR-001')
+        second = self.make_packing_session('PS-LABOR-002')
+
+        first_log = LaborService.record_or_update_daily_log(
+            workshop=self.workshop, packing_session=first, work_date=day,
+            worker_count=5, work_hours=Decimal('8.00'), user=self.accountant,
+        )
+        updated_log = LaborService.record_or_update_daily_log(
+            workshop=self.workshop, packing_session=first, work_date=day,
+            worker_count=7, work_hours=Decimal('8.00'), user=self.accountant,
+        )
+        second_log = LaborService.record_or_update_daily_log(
+            workshop=self.workshop, packing_session=second, work_date=day,
+            worker_count=3, work_hours=Decimal('6.00'), user=self.accountant,
+        )
+        general_log = LaborService.record_or_update_daily_log(
+            workshop=self.workshop, work_date=day, worker_count=2,
+            work_hours=Decimal('4.00'), user=self.accountant,
+        )
+
+        self.assertEqual(first_log.pk, updated_log.pk)
+        self.assertEqual(updated_log.worker_count, 7)
+        self.assertNotEqual(updated_log.pk, second_log.pk)
+        self.assertEqual(DailyLaborLog.objects.filter(workshop=self.workshop).count(), 3)
+        self.assertEqual(general_log.packing_session, None)
+        self.assertEqual(first.labor_logs.get().total_cost, Decimal('63.000'))
+        self.assertEqual(second.labor_logs.get().total_cost, Decimal('21.000'))
+
+    def test_daily_labor_form_is_prefilled_from_packing_session(self):
+        session = self.make_packing_session('PS-LABOR-FORM')
+        self.client.force_login(self.accountant)
+
+        response = self.client.get(
+            reverse('record_daily_labor'), {'packing_session': session.pk}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['form'].initial['packing_session'], session)
+        self.assertEqual(
+            response.context['form'].initial['work_date'],
+            timezone.localtime(session.started_at).date(),
+        )
+        self.assertContains(response, 'عملية التوضيب المرتبطة')
+        self.assertContains(response, 'وزّع بدل المواصلات')
+
+    def test_recording_from_session_redirects_back_and_updates_session_cost(self):
+        session = self.make_packing_session('PS-LABOR-POST')
+        self.client.force_login(self.accountant)
+
+        response = self.client.post(reverse('record_daily_labor'), {
+            'workshop': self.workshop.pk,
+            'packing_session': session.pk,
+            'work_date': timezone.localtime(session.started_at).date().isoformat(),
+            'worker_count': 10,
+            'work_hours': '8.00',
+            'hourly_rate': '1.000',
+            'transport_allowance_daily': '1.000',
+            'notes': '',
+        })
+
+        self.assertRedirects(response, reverse('packing_detail', args=[session.pk]))
+        self.assertEqual(session.labor_logs.get().total_cost, Decimal('90.000'))
+        detail = self.client.get(reverse('packing_detail', args=[session.pk]))
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.context['session_labor_cost'], Decimal('90.000'))
+        self.assertEqual(detail.context['session_labor_cost_per_kg'], Decimal('0.900'))
+        self.assertContains(detail, 'يوم عمل الورشة لهذه العملية')
+
+    def test_session_with_labor_history_cannot_be_deleted(self):
+        session = self.make_packing_session('PS-LABOR-PROTECT')
+        LaborService.record_or_update_daily_log(
+            workshop=self.workshop, packing_session=session,
+            work_date=timezone.now().date(), worker_count=2,
+            work_hours=Decimal('8.00'), user=self.accountant,
+        )
+
+        with self.assertRaises(ProtectedError):
+            session.delete()
+
+        self.assertTrue(PackingSession.objects.filter(pk=session.pk).exists())
+        self.assertEqual(session.labor_logs.count(), 1)
+
+    def test_cost_report_applies_selected_month_to_session_labor(self):
+        session = self.make_packing_session('PS-LABOR-PERIOD')
+        LaborService.record_or_update_daily_log(
+            workshop=self.workshop, packing_session=session,
+            work_date=date(2026, 1, 12), worker_count=10,
+            work_hours=Decimal('8.00'), user=self.accountant,
+        )
+        LaborService.record_or_update_daily_log(
+            workshop=self.workshop, packing_session=session,
+            work_date=date(2026, 2, 12), worker_count=20,
+            work_hours=Decimal('8.00'), user=self.accountant,
+        )
+        self.client.force_login(self.accountant)
+
+        response = self.client.get(reverse('labor_cost_report'), {'year': 2026, 'month': 1})
+
+        self.assertEqual(response.status_code, 200)
+        session_row = response.context['packing_sessions'][0]
+        self.assertEqual(session_row.pk, session.pk)
+        self.assertEqual(session_row.linked_labor_cost, Decimal('90.000'))
+        self.assertEqual(session_row.linked_workdays, 1)
+        self.assertEqual(session_row.linked_labor_logs, 1)
+        self.assertContains(response, 'أجور الورشة حسب عملية التوضيب')
 
 
 class EmployeeSalaryTests(TestCase):

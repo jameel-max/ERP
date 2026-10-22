@@ -13,22 +13,35 @@
                 <div class="card-body p-4 bg-white">
                     <form method="post">
                         {% csrf_token %}
+                        {% if form.non_field_errors %}
+                        <div class="alert alert-danger" role="alert">{{ form.non_field_errors }}</div>
+                        {% endif %}
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label fw-bold">الورشة *</label>
                                 {{ form.workshop }}
+                                {{ form.workshop.errors }}
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-bold">عملية التوضيب المرتبطة <span class="text-muted fw-normal">(اختياري)</span></label>
+                                {{ form.packing_session }}
+                                <div class="form-text">اختر العملية التي عملت عليها هذه الورشة. اتركها على «يوم عام» إذا لم تكن الأجور تخص جلسة بعينها. عند توزيع عمل اليوم على أكثر من عملية، وزّع بدل المواصلات بينها حتى لا يتكرر احتسابه كاملاً.</div>
+                                {{ form.packing_session.errors }}
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label fw-bold">تاريخ العمل *</label>
                                 {{ form.work_date }}
+                                {{ form.work_date.errors }}
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label fw-bold">عدد العمال *</label>
                                 {{ form.worker_count }}
+                                {{ form.worker_count.errors }}
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label fw-bold">ساعات العمل الفعلية *</label>
                                 {{ form.work_hours }}
+                                {{ form.work_hours.errors }}
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label fw-bold">سعر الساعة (دينار) *</label>
@@ -37,10 +50,12 @@
                             <div class="col-md-6">
                                 <label class="form-label fw-bold">بدل المواصلات اليومي للعامل (دينار) *</label>
                                 {{ form.transport_allowance_daily }}
+                                {{ form.transport_allowance_daily.errors }}
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label fw-bold">ملاحظات العمل</label>
                                 {{ form.notes }}
+                                {{ form.notes.errors }}
                             </div>
                         </div>
 

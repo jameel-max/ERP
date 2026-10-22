@@ -41,7 +41,13 @@
                         <i class="bi bi-pencil-square me-1"></i> تعديل عملية التوضيب
                     </a>
                     {% endif %}
+                    {% if has_labor_logs %}
+                    <button type="button" class="btn btn-outline-secondary" disabled title="توجد سجلات دوام مرتبطة بهذه العملية">
+                        <i class="bi bi-shield-lock me-1"></i> الحذف محمي بسجلات العمالة
+                    </button>
+                    {% else %}
                     {% include "core/_delete_button.html" with app_label="packing" model_name="packingsession" object_id=session.pk btn_class="btn-outline-danger" title="حذف جلسة التوضيب بشكل منفرد" show_text=True %}
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -111,6 +117,82 @@
                 <h3 class="fw-bold my-1 text-primary">{{ session.randeman_pct }}%</h3>
                 <small class="text-muted">فرق الوزن: {{ session.unexplained_diff_kg }} كغ (السالب يعني أن الناتج والهالك تجاوزا وزن الداخل)</small>
             </div>
+        </div>
+    </div>
+
+    <!-- العمالة والتكلفة الداخلية المرتبطة بهذه العملية -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white border-bottom py-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h5 class="fw-bold mb-1 text-dark"><i class="bi bi-people-fill text-success me-2"></i>يوم عمل الورشة لهذه العملية</h5>
+                <small class="text-muted">اربط كل سجل دوام بجلسة التوضيب حتى تظهر تكلفته هنا وفي سجل الورشة. هذه تكلفة داخلية ولا تُضاف تلقائياً إلى فاتورة التاجر.</small>
+            </div>
+            {% if user.is_accountant %}
+            <a href="{% url 'record_daily_labor' %}?packing_session={{ session.pk }}" class="btn btn-royal">
+                <i class="bi bi-plus-circle me-1"></i> توثيق يوم عمل لهذه العملية
+            </a>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            <div class="row g-3 mb-3">
+                <div class="col-12 col-md-4">
+                    <div class="p-3 rounded border bg-light h-100">
+                        <small class="text-muted d-block">أيام الورشة المرتبطة</small>
+                        <strong class="fs-5">{{ labor_workdays }} يوم</strong>
+                    </div>
+                </div>
+                <div class="col-12 col-md-4">
+                    <div class="p-3 rounded border border-success-subtle bg-success-subtle h-100">
+                        <small class="text-success-emphasis d-block">إجمالي أجور هذه العملية</small>
+                        <strong class="fs-5 text-success">{{ session_labor_cost }} د.أ</strong>
+                    </div>
+                </div>
+                <div class="col-12 col-md-4">
+                    <div class="p-3 rounded border border-primary-subtle bg-primary-subtle h-100">
+                        <small class="text-primary-emphasis d-block">التكلفة الداخلية لكل كغ موضب</small>
+                        {% if session_labor_cost_per_kg is not None %}
+                        <strong class="fs-5 text-primary">{{ session_labor_cost_per_kg }} د.أ/كغ</strong>
+                        {% else %}
+                        <strong class="text-muted">تظهر بعد تسجيل الإنتاج</strong>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% if has_labor_logs %}
+            <div class="alert alert-warning py-2 small mb-3">
+                <i class="bi bi-shield-lock me-1"></i>
+                لا يمكن حذف عملية التوضيب ما دامت سجلات العمالة مرتبطة بها. لإزالة ربط خاطئ، راجع سجل الورشة واحذف السجل المسجل بالخطأ ثم أعد تسجيله على العملية الصحيحة.
+            </div>
+            {% endif %}
+            {% if labor_logs %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>تاريخ العمل</th><th>الورشة</th><th>العمال</th>
+                            <th>الساعات</th><th class="text-end">التكلفة</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in labor_logs %}
+                        <tr>
+                            <td>{{ log.work_date|date:"Y-m-d" }}</td>
+                            <td><a href="{% url 'workshop_detail' log.workshop_id %}" class="fw-bold text-success">{{ log.workshop.name }}</a></td>
+                            <td>{{ log.worker_count }}</td>
+                            <td>{{ log.work_hours }}</td>
+                            <td class="text-end fw-bold">{{ log.total_cost }} د.أ</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center rounded border border-dashed bg-light p-4">
+                <i class="bi bi-calendar2-plus fs-2 text-success d-block mb-2"></i>
+                <div class="fw-bold text-dark">لا توجد سجلات دوام مرتبطة بهذه العملية بعد</div>
+                <div class="small text-muted mt-1">يمكن توثيق أكثر من يوم، وسيُحدّث مجموع العمالة هنا تلقائياً.</div>
+            </div>
+            {% endif %}
         </div>
     </div>
 

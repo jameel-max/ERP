@@ -43,6 +43,12 @@
                             <label class="small fw-bold">تاريخ العمل</label>
                             {{ log_form.work_date }}
                         </div>
+                        <div class="col-12">
+                            <label class="small fw-bold">عملية التوضيب المرتبطة (اختياري)</label>
+                            {{ log_form.packing_session }}
+                            <div class="form-text">عند توزيع عمل اليوم على أكثر من عملية، وزّع بدل المواصلات بينها حتى لا يتكرر احتسابه كاملاً.</div>
+                            <div class="form-text">اختر العملية لتظهر تكلفة هذا اليوم في تفاصيلها. اتركه فارغاً ليبقى السجل عاماً للورشة.</div>
+                        </div>
                         <div class="col-md-2">
                             <label class="small fw-bold">عدد العمال</label>
                             {{ log_form.worker_count }}
@@ -101,7 +107,7 @@
 
                 <div class="mt-2 mt-md-0 d-flex gap-3">
                     <div class="text-end">
-                        <span class="text-muted small">إجمالي عمال الشهر:</span>
+                        <span class="text-muted small">إجمالي العمال المسجلين على جلسات الشهر:</span>
                         <strong class="d-block fs-6 text-dark">{{ monthly_workers_sum }} عامل</strong>
                     </div>
                     <div class="text-end border-start ps-3">
@@ -136,6 +142,15 @@
                                     عدد العمال: <strong>{{ log.worker_count }} عامل</strong> &bull;
                                     ساعات العمل: <strong>{{ log.work_hours }} ساعة</strong>
                                 </div>
+                                {% if log.packing_session_id %}
+                                <div class="mt-2">
+                                    <a href="{% url 'packing_detail' log.packing_session_id %}" class="badge bg-primary-subtle text-primary-emphasis text-decoration-none">
+                                        <i class="bi bi-box-seam me-1"></i> عملية {{ log.packing_session.session_code }} — {{ log.packing_session.trader.name }} / {{ log.packing_session.crop.name }}
+                                    </a>
+                                </div>
+                                {% else %}
+                                <div class="mt-2"><span class="badge bg-secondary-subtle text-secondary-emphasis">سجل ورشة عام غير موزع على عملية</span></div>
+                                {% endif %}
                                 {% if log.notes %}
                                 <div class="small text-muted mt-1"><i class="bi bi-info-circle me-1"></i> {{ log.notes }}</div>
                                 {% endif %}

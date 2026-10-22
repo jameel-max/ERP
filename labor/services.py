@@ -2,6 +2,7 @@ from decimal import Decimal
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from django.db.models import Sum
+from django.core.cache import cache
 from django.utils import timezone
 
 from core.models import AuditLog, SystemSetting
@@ -16,7 +17,9 @@ class LaborService:
     """
     @classmethod
     @transaction.atomic
-    def record_or_update_daily_log(cls, workshop, work_date, worker_count, work_hours, hourly_rate=None, transport_allowance=None, notes="", user=None):
+    def record_or_update_daily_log(cls, workshop, work_date, worker_count, work_hours,
+                                   hourly_rate=None, transport_allowance=None,
+                                   packing_session=None, notes="", user=None):
         if worker_count <= 0:
             raise ValidationError("عدد العمال يجب أن يكون أكبر من صفر.")
         if work_hours <= 0:
@@ -35,6 +38,7 @@ class LaborService:
         log, created = DailyLaborLog.objects.get_or_create(
             workshop=workshop,
             work_date=work_date,
+            packing_session=packing_session,
             defaults={
                 'worker_count': worker_count,
                 'work_hours': Decimal(str(work_hours)),
@@ -56,12 +60,21 @@ class LaborService:
         log.calculate_cost()
         log.save()
 
+        # A newly recorded/edited labor cost must be reflected immediately in
+        # the cost-per-kilo dashboard instead of waiting for the short cache TTL.
+        transaction.on_commit(lambda: cache.delete('labor_cost_per_kg_full'))
+
         AuditLog.log(
             user=user,
             action='RECORD_LABOR_LOG',
             instance=log,
             reason=f'توثيق يوم عمل ورشة {workshop.name} بتاريخ {work_date}',
-            details={'workers': worker_count, 'hours': str(work_hours), 'total_cost': str(log.total_cost)}
+            details={
+                'workers': worker_count,
+                'hours': str(work_hours),
+                'total_cost': str(log.total_cost),
+                'packing_session': packing_session.session_code if packing_session else None,
+            }
         )
         return log
 

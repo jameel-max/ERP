@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 from django.conf import settings
 from django.utils import timezone
 from decimal import Decimal, ROUND_HALF_UP
@@ -48,6 +49,15 @@ class DailyLaborLog(models.Model):
         on_delete=models.CASCADE,
         related_name='daily_logs',
         verbose_name='الورشة'
+    )
+    packing_session = models.ForeignKey(
+        'packing.PackingSession',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='labor_logs',
+        verbose_name='عملية التوضيب المرتبطة',
+        help_text='اختياري. ربط السجل يتيح مراجعة تكلفة عمال هذه الورشة ضمن عملية التوضيب المحددة.',
     )
     work_date = models.DateField(
         default=timezone.now,
@@ -117,7 +127,18 @@ class DailyLaborLog(models.Model):
     class Meta:
         verbose_name = 'سجل يوم عمل ورشة'
         verbose_name_plural = 'سجلات أيام العمل للورش'
-        unique_together = ('workshop', 'work_date')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['workshop', 'work_date'],
+                condition=Q(packing_session__isnull=True),
+                name='uniq_unassigned_workshop_day',
+            ),
+            models.UniqueConstraint(
+                fields=['workshop', 'work_date', 'packing_session'],
+                condition=Q(packing_session__isnull=False),
+                name='uniq_session_workshop_day',
+            ),
+        ]
         ordering = ['-work_date']
 
     def __str__(self):

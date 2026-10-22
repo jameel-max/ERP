@@ -89,7 +89,7 @@
                         <th>الورشة</th>
                         <th>المشرف</th>
                         <th>عدد أيام العمل</th>
-                        <th>مجموع العمال (يوم/عامل)</th>
+                        <th>مجموع العمال المسجلين حسب الجلسات</th>
                         <th>سعر الساعة</th>
                         <th>بدل المواصلات اليومي</th>
                         <th>إجمالي التكلفة</th>
@@ -121,6 +121,41 @@
             <strong>معادلة التكلفة:</strong> تكلفة الورشة = (عدد العمال × ساعات العمل × سعر الساعة) + (عدد العمال × بدل المواصلات اليومي). مثال: 70 عاملاً × 10 ساعات → 70×10 + 70×1 = 770 دينار.
             ولا تُضاف أجور الورش تلقائياً إلى فاتورة التاجر لأن سعر التوضيب شامل.
         </div>
+    </div>
+
+    <!-- تكلفة العمالة الموزعة على كل عملية توضيب -->
+    <div class="card shadow-sm mt-4">
+        <div class="card-header bg-white py-3">
+            <h5 class="fw-bold mb-1"><i class="bi bi-link-45deg text-primary me-2"></i>أجور الورشة حسب عملية التوضيب</h5>
+            <small class="text-muted">يعرض هذا الجدول سجلات أيام العمل المرتبطة مباشرة بكل عملية. السجلات العامة غير المرتبطة تبقى ضمن إجمالي الورش فقط.</small>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>العملية</th><th>التاجر / المحصول</th><th>الحالة</th>
+                        <th>أيام مرتبطة</th><th>الإنتاج الموضب</th>
+                        <th>تكلفة الورشة</th><th>التكلفة لكل كغ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for session in packing_sessions %}
+                    <tr>
+                        <td><a class="fw-bold text-success" href="{% url 'packing_detail' session.pk %}">{{ session.session_code }}</a></td>
+                        <td>{{ session.trader.name }}<div class="small text-muted">{{ session.crop.name }}</div></td>
+                        <td><span class="badge bg-light text-dark border">{{ session.get_status_display }}</span></td>
+                        <td>{{ session.linked_workdays }} يوم <small class="text-muted">({{ session.linked_labor_logs }} سجل)</small></td>
+                        <td>{{ session.output_packed_kg }} كغ</td>
+                        <td class="fw-bold text-danger">{{ session.linked_labor_cost }} د.أ</td>
+                        <td>{% if session.linked_labor_cost_per_kg is not None %}{{ session.linked_labor_cost_per_kg }} د.أ/كغ{% else %}<span class="text-muted">لا يوجد إنتاج بعد</span>{% endif %}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="7" class="text-center py-4 text-muted">لا توجد أيام عمل مربوطة بعمليات توضيب ضمن الفترة المحددة.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include "core/_pagination.html" with page_obj=session_page.page_obj page_links=session_page.page_links result_start=session_page.result_start result_end=session_page.result_end total_count=session_page.total_count previous_url=session_page.previous_url next_url=session_page.next_url %}
     </div>
 </div>
 {% endblock %}
