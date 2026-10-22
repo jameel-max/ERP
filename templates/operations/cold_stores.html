@@ -177,7 +177,8 @@
                                         {% if shelf_data.free is not None %}
                                         <span class="badge bg-light text-dark border me-1">متاح {{ shelf_data.free }}</span>
                                         {% endif %}
-                                        <span class="badge bg-secondary">{{ shelf_data.total_boxes }} صندوق</span>
+                                        <span class="badge bg-success-subtle text-success-emphasis border me-1">خام: {{ shelf_data.raw_boxes }} صندوق مزرعة</span>
+                                        <span class="badge bg-info-subtle text-info-emphasis border">موضبة: {{ shelf_data.packed_boxes }} صندوق تعبئة</span>
                                         {% include "core/_delete_button.html" with app_label="operations" model_name="shelf" object_id=shelf.pk title="حذف السيخ بشكل منفرد" %}
                                     </div>
                                 </div>

@@ -1942,6 +1942,11 @@ class PackingQuantityLedgerTests(TestCase):
         response = self.client.get(reverse('cold_store_list'))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'إجمالي الإشغال: 13')
+        self.assertContains(response, 'الإجمالي 13 / 25')
+        self.assertContains(response, 'خام 8')
+        self.assertContains(response, 'موضبة 5')
+        self.assertContains(response, '400 صندوق مزرعة')
+        self.assertContains(response, '50 صندوق تعبئة')
         self.assertContains(response, 'موضبة')
         self.assertContains(response, 'خام')
 

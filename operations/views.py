@@ -466,11 +466,14 @@ def cold_store_list(request):
             store_shelves.append({
                 'shelf': shelf,
                 'pallets': pallets,
-                'pallet_count': raw_count,
+                # Keep the legacy display key aligned with the real shelf
+                # occupancy: raw and packed pallets share the same capacity.
+                'pallet_count': raw_count + packed_count,
                 'raw_pallet_count': raw_count,
                 'packed_pallet_count': packed_count,
                 'total_pallet_count': raw_count + packed_count,
-                'total_boxes': raw_boxes + packed_boxes,
+                # These are different business units (farm crates vs sale
+                # cartons); never add them into a misleading combined total.
                 'raw_boxes': raw_boxes,
                 'packed_boxes': packed_boxes,
                 'packed_pallets': packed_pallets,
