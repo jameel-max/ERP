@@ -1,6 +1,7 @@
 import io
 import json
 from decimal import Decimal
+from django.conf import settings
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
@@ -10,7 +11,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as ReportLabImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 from core.permissions import manager_required
@@ -259,7 +260,21 @@ def manager_daily_pdf(request):
     sub_style = ParagraphStyle('S', parent=styles['Normal'], fontSize=9, leading=13,
                                textColor=colors.HexColor('#555555'), alignment=1)
 
-    elements = [Paragraph("ROYAL FRUIT PACKHOUSE - Royal Fruit Daily Manager Report", title_style)]
+    brand_text = [Paragraph("ROYAL FRUIT PACKHOUSE - Royal Fruit Daily Manager Report", title_style)]
+    logo_path = settings.BASE_DIR / 'static' / 'images' / 'royal-fruit-logo.jpg'
+    if logo_path.is_file():
+        brand_header = Table(
+            [[brand_text, ReportLabImage(str(logo_path), width=48, height=48)]],
+            colWidths=[475, 60],
+        )
+        brand_header.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        elements = [brand_header]
+    else:
+        elements = brand_text
     elements.append(Paragraph(f"Date: {context['today']} (Amman Time)", sub_style))
     elements.append(Spacer(1, 14))
 

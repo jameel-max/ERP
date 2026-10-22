@@ -1,11 +1,12 @@
 import io
 from decimal import Decimal, ROUND_HALF_UP
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as ReportLabImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 from core.models import SystemSetting, AuditLog
@@ -249,10 +250,24 @@ class InvoiceService:
             alignment=2,
         )
 
-        # ------- الترويسة -------
-        elements.append(Paragraph(arabic('مشغل رويال فروت'), title_style))
-        elements.append(Paragraph(arabic('ROYAL FRUIT PACKHOUSE'), subtitle_style))
-        elements.append(Paragraph(arabic('فاتورة حساب المشغل والتوضيب المعتمدة'), subtitle_style))
+        # ------- الترويسة والشعار -------
+        brand_text = [
+            Paragraph(arabic('مشغل رويال فروت'), title_style),
+            Paragraph(arabic('ROYAL FRUIT PACKHOUSE'), subtitle_style),
+            Paragraph(arabic('فاتورة حساب المشغل والتوضيب المعتمدة'), subtitle_style),
+        ]
+        logo_path = settings.BASE_DIR / 'static' / 'images' / 'royal-fruit-logo.jpg'
+        if logo_path.is_file():
+            brand_logo = ReportLabImage(str(logo_path), width=48, height=48)
+            brand_header = Table([[brand_text, brand_logo]], colWidths=[475, 60])
+            brand_header.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ]))
+            elements.append(brand_header)
+        else:
+            elements.extend(brand_text)
         elements.append(Spacer(1, 12))
 
         # ------- بيانات الفاتورة والتاجر -------

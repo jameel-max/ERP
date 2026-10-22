@@ -74,14 +74,10 @@
 {% block content %}
 <div class="container-fluid px-4 mt-4 mb-5">
 
-    <!-- ترويسة خاصة بالطباعة (اسم المشغل ورقم الفاتورة) -->
+    <!-- ترويسة خاصة بالطباعة؛ شعار الشركة يظهر من ترويسة الطباعة العامة -->
     <div class="rf-print-header">
-        <div style="text-align:center; border-bottom:2px solid #1B4D3E; padding-bottom:6px; margin-bottom:10px;">
-            <div style="font-size:20px; font-weight:700; color:#1B4D3E;">{{ company_name_ar|default:"مشغل رويال فروت" }}</div>
-            <div style="font-size:13px; color:#555;">{{ company_name_en }} — Royal Fruit Packhouse</div>
-            <div style="font-size:13px; margin-top:4px;">
-                {{ invoice.invoice_number }} — {{ invoice.created_at|date:"Y-m-d" }}
-            </div>
+        <div style="text-align:center; font-size:13px; color:#555; margin-bottom:10px;">
+            فاتورة رقم {{ invoice.invoice_number }} — {{ invoice.created_at|date:"Y-m-d" }}
         </div>
     </div>
 

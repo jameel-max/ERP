@@ -20,13 +20,21 @@
             width: 100mm;
             height: 150mm;
             display: flex;
+            flex-direction: column;
+            gap: 3mm;
             align-items: center;
             justify-content: center;
         }
-        .qr-only {
+        .brand-mark {
+            width: 18mm;
+            height: 18mm;
+            object-fit: cover;
+            border-radius: 50%;
+        }
+        .qr-code {
             display: block;
-            width: 90mm;
-            height: 90mm;
+            width: 86mm;
+            height: 86mm;
             image-rendering: pixelated;
         }
         .no-print {
@@ -62,9 +70,10 @@
         <a href="{% url 'packed_pallets_list' %}">رجوع للطبالي الموضبة</a>
     </div>
 
-    <!-- الملصق: رمز QR فقط بلا أي معلومات، ومسحه يفتح صفحة الطبلية كاملة -->
+    <!-- الشعار فوق رمز QR، مع إبقاء الرمز كبيراً وواضحاً للمسح -->
     <div class="label-page">
-        <img class="qr-only" src="{{ qr_b64 }}" data-qr-url="{{ qr_url }}"
+        <img class="brand-mark" src="{% static 'images/royal-fruit-logo.jpg' %}" alt="{{ company_name_en }}">
+        <img class="qr-code" src="{{ qr_b64 }}" data-qr-url="{{ qr_url }}"
              alt="QR {{ pallet.packed_pallet_code }}">
     </div>
 </body>

@@ -415,9 +415,9 @@ class Phase1ComprehensiveTests(TestCase):
         truck = ReceptionService.process_truck_reception(data=data, user=self.accountant)
         return truck.pallets.first()
 
-    def test_pallet_label_shows_qr_only_and_qr_opens_scan_page(self):
+    def test_pallet_label_includes_company_logo_and_qr_opens_scan_page(self):
         """
-        ملصق الطبلية يحتوي رمز QR فقط بلا أي معلومات مكتوبة،
+        ملصق الطبلية يحتوي شعار الشركة ورمز QR فقط بلا أي معلومات مكتوبة،
         والرمز يُشفّر رابطاً يفتح صفحة بيانات الطبلية عند المسح.
         """
         pallet = self._receive_one_pallet()
@@ -428,7 +428,8 @@ class Phase1ComprehensiveTests(TestCase):
 
         expected_url = f"http://testserver{reverse('pallet_qr_scan', args=[pallet.pallet_code])}"
         self.assertContains(resp, f'data-qr-url="{expected_url}"')
-        # لا معلومات مكتوبة على الملصق (الرمز فقط)
+        self.assertContains(resp, 'images/royal-fruit-logo.jpg')
+        # لا معلومات مكتوبة على الملصق (الشعار والرمز فقط)
         self.assertNotContains(resp, 'data-val')
         self.assertNotContains(resp, 'sscc_code')
 

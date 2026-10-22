@@ -839,9 +839,9 @@ class Phase2ComprehensiveTests(TestCase):
 
     # ==================== رمز QR ملصق الطبلية الموضبة ====================
 
-    def test_packed_pallet_label_shows_qr_only_and_qr_opens_scan_page(self):
+    def test_packed_pallet_label_includes_company_logo_and_qr_opens_scan_page(self):
         """
-        ملصق الطبلية الموضبة يحتوي رمز QR فقط بلا معلومات مكتوبة،
+        ملصق الطبلية الموضبة يحتوي شعار الشركة ورمز QR فقط بلا معلومات مكتوبة،
         والرمز يُشفّر رابط صفحة الطبلية الموضبة التي تعرض بياناتها كاملة.
         """
         packed = self._make_packed_pallet()
@@ -852,6 +852,7 @@ class Phase2ComprehensiveTests(TestCase):
 
         expected_url = f"http://testserver{reverse('packed_pallet_qr_scan', args=[packed.packed_pallet_code])}"
         self.assertContains(resp, f'data-qr-url="{expected_url}"')
+        self.assertContains(resp, 'images/royal-fruit-logo.jpg')
         self.assertNotContains(resp, 'data-val')
 
     def test_packed_pallet_qr_scan_page_shows_full_info_without_login(self):

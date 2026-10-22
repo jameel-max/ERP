@@ -19,6 +19,15 @@
             padding: 1.2rem;
             text-align: center;
         }
+        .header-brand { display: flex; align-items: center; justify-content: center; gap: .75rem; }
+        .header-brand img { width: 48px; height: 48px; object-fit: cover; border-radius: 50%; background: #fff; }
+        @media (max-width: 480px) {
+            .header-bar { padding: 1rem .75rem; }
+            .header-brand { gap: .5rem; text-align: right; }
+            .header-brand img { width: 40px; height: 40px; flex: 0 0 40px; }
+            .header-brand h3 { font-size: 1rem; }
+            .header-brand small { font-size: .7rem; }
+        }
         .data-card {
             background: white;
             border-radius: 12px;
@@ -39,8 +48,13 @@
 </head>
 <body>
     <div class="header-bar shadow">
-        <h3 class="fw-bold mb-0"><i class="bi bi-box-seam me-2"></i> {{ company_name_en }} ({{ company_name_ar }})</h3>
-        <small class="text-light opacity-75">نظام تتبع الطبالي وبطاقة الاستلام المعتمدة</small>
+        <div class="header-brand">
+            <img src="{% static 'images/royal-fruit-logo.jpg' %}" alt="{{ company_name_en }}">
+            <div>
+                <h3 class="fw-bold mb-0">{{ company_name_en }} ({{ company_name_ar }})</h3>
+                <small class="text-light opacity-75">نظام تتبع الطبالي وبطاقة الاستلام المعتمدة</small>
+            </div>
+        </div>
     </div>
 
     <div class="container my-4">

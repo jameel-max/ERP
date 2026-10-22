@@ -21,16 +21,24 @@
             width: 100mm;
             height: 150mm;
             display: flex;
+            flex-direction: column;
+            gap: 3mm;
             align-items: center;
             justify-content: center;
         }
         .page-break:last-child {
             page-break-after: auto;
         }
-        .qr-only {
+        .brand-mark {
+            width: 18mm;
+            height: 18mm;
+            object-fit: cover;
+            border-radius: 50%;
+        }
+        .qr-code {
             display: block;
-            width: 90mm;
-            height: 90mm;
+            width: 86mm;
+            height: 86mm;
             image-rendering: pixelated;
         }
         .no-print {
@@ -66,10 +74,11 @@
         <a href="{% url 'truck_detail' truck.pk %}">رجوع لتفاصيل السيارة</a>
     </div>
 
-    <!-- كل صفحة = ملصق طبلية: رمز QR فقط بلا أي معلومات، ومسحه يفتح صفحة الطبلية كاملة -->
+    <!-- كل صفحة = شعار الشركة ورمز QR كبير لسهولة التعرف والمسح -->
     {% for item in pallets_with_qr %}
     <div class="page-break">
-        <img class="qr-only" src="{{ item.qr_image_b64 }}" data-qr-url="{{ item.qr_url }}"
+        <img class="brand-mark" src="{% static 'images/royal-fruit-logo.jpg' %}" alt="{{ company_name_en }}">
+        <img class="qr-code" src="{{ item.qr_image_b64 }}" data-qr-url="{{ item.qr_url }}"
              alt="QR {{ item.pallet.pallet_code }}">
     </div>
     {% endfor %}

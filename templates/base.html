@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}">
     <!-- خط Cairo (محلي) -->
     <link rel="stylesheet" href="{% static 'vendor/cairo/cairo.css' %}">
+    <link rel="icon" type="image/jpeg" href="{% static 'images/royal-fruit-logo.jpg' %}">
 
     <style>
         :root {
@@ -144,6 +145,21 @@
         .navbar-brand span {
             color: #81c784;
         }
+        .rf-brand-logo {
+            width: 42px;
+            height: 42px;
+            flex: 0 0 42px;
+            object-fit: cover;
+            border: 2px solid rgba(255,255,255,0.85);
+            border-radius: 50%;
+            background: #fff;
+        }
+        .rf-print-brand { display: none; }
+        @media (max-width: 575.98px) {
+            .rf-brand-logo { width: 34px; height: 34px; flex-basis: 34px; }
+            .rf-brand-copy .rf-brand-title { font-size: 0.78rem !important; }
+            .rf-brand-copy .rf-brand-tagline { display: none; }
+        }
         .nav-link {
             color: rgba(255,255,255,0.9) !important;
             font-weight: 600;
@@ -215,12 +231,36 @@
             body {
                 background: white;
             }
+            .rf-print-brand {
+                display: flex !important;
+                align-items: center;
+                justify-content: center;
+                gap: 12px;
+                margin: 0 0 14px;
+                padding: 0 0 10px;
+                border-bottom: 2px solid #1B4D3E;
+                color: #1B4D3E;
+                text-align: right;
+            }
+            .rf-print-brand img {
+                width: 54px;
+                height: 54px;
+                object-fit: cover;
+                border-radius: 50%;
+                border: 1px solid #dce7e1;
+            }
         }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
 <body>
-
+    <div class="rf-print-brand" aria-label="{{ company_name_en }} {{ company_name_ar }}">
+        <img src="{% static 'images/royal-fruit-logo.jpg' %}" alt="{{ company_name_en }}">
+        <div>
+            <div style="font-size: 18px; font-weight: 800;">{{ company_name_ar }}</div>
+            <div style="font-size: 12px; font-weight: 700;">{{ company_name_en }} — PACKHOUSE MANAGEMENT</div>
+        </div>
+    </div>
     <!-- الهيدر العلوي -->
     <nav class="navbar navbar-royal no-print" style="min-height:56px;">
         <div class="container-fluid px-3 d-flex align-items-center justify-content-between">
@@ -229,10 +269,10 @@
                     <i class="bi bi-list fs-4"></i>
                 </button>
                 <a class="navbar-brand d-flex align-items-center mb-0" href="{% url 'home' %}">
-                    <i class="bi bi-box-seam-fill me-2 fs-4 text-warning"></i>
-                    <div>
-                        <div class="fs-6 fw-bold">{{ company_name_en }} <span class="fw-normal">({{ company_name_ar }})</span></div>
-                        <small class="d-block fw-light" style="font-size: 0.62rem; color: #a5d6a7;">PACKHOUSE MANAGEMENT ERP</small>
+                    <img class="rf-brand-logo me-2" src="{% static 'images/royal-fruit-logo.jpg' %}" alt="" aria-hidden="true">
+                    <div class="rf-brand-copy">
+                        <div class="rf-brand-title fs-6 fw-bold">{{ company_name_en }} <span class="fw-normal">({{ company_name_ar }})</span></div>
+                        <small class="rf-brand-tagline d-block fw-light" style="font-size: 0.62rem; color: #a5d6a7;">PACKHOUSE MANAGEMENT ERP</small>
                     </div>
                 </a>
             </div>
