@@ -14,12 +14,12 @@ from core.permissions import accountant_required, manager_required, write_requir
 from core.utils import save_form_transactionally
 from core.models import Notification, AuditLog, SystemSetting
 from core.pagination import paginate
-from .models import Trader, Crop, BoxType, ColdStore, Shelf, TruckReceipt, Pallet, PalletMovementLog, TraderPackingRate, ColdStoreTemperatureLog, PackagingGroup, annotate_shelf_occupancy
+from .models import Trader, Crop, BoxType, ColdStore, Shelf, TruckReceipt, Pallet, PalletMovementLog, TraderPackingRate, ColdStoreTemperatureLog, PackagingGroup, annotate_shelf_occupancy, annotate_cold_store_occupancy
 from .forms import (
     TraderForm, TraderPackingRateForm, BoxTypeForm, CropForm,
     ColdStoreForm, ShelfForm, TruckReceiptForm, PalletTransferForm, PackagingGroupForm,
 )
-from .services import ReceptionService, StorageService
+from .services import ReceptionService, StorageService, ColdStoreCapacityError
 from .move_utils import error_response, move_payload, resolve_target, success_response, validation_error_message
 from .qr_utils import generate_qr_base64, build_scan_url
 from .csv_importer import import_traders_from_csv, import_boxes_from_csv
@@ -185,17 +185,40 @@ def _shelves_snapshot():
         Shelf.objects.select_related('cold_store').order_by('cold_store__code', 'shelf_number')
     )
     annotate_shelf_occupancy(shelves)
+    stores = {
+        store.pk: store for store in annotate_cold_store_occupancy(ColdStore.objects.all())
+    }
+    stackable_by_store = dict(
+        Pallet.objects.filter(
+            status=Pallet.Status.IN_COOLING,
+            double_tier_base__isnull=True,
+            shelf__isnull=False,
+        ).annotate(
+            active_upper_count=Count(
+                'double_tier_upper_pallets',
+                filter=Q(double_tier_upper_pallets__status=Pallet.Status.IN_COOLING),
+            )
+        ).filter(active_upper_count=0).values_list('cold_store_id')
+        .annotate(c=Count('id')).values_list('cold_store_id', 'c')
+    )
     data = []
     for shelf in shelves:
         capacity = shelf.effective_capacity
-        occupied = shelf.total_occupied_pallets
+        occupied = shelf.storage_slot_occupied
         free = max(0, capacity - occupied) if capacity else None
+        racks_available = stores[shelf.cold_store_id].double_tier_racks_available
+        can_consider_racks = bool(
+            racks_available and (stackable_by_store.get(shelf.cold_store_id, 0) or (free is not None and free > 0))
+        )
+        is_full = bool(capacity) and occupied >= capacity
         data.append({
             'id': shelf.id,
             'store_id': shelf.cold_store_id,
-            'label': f"السيخ {shelf.shelf_number}" + (f" — متاح {free} طبلية" if free is not None else ''),
+            'label': f"السيخ {shelf.shelf_number}" + (
+                f" — متاح {free} موضع أرضي" if free is not None else ''
+            ) + (f" — يوجد {racks_available} حامل طابقين" if can_consider_racks else ''),
             'free': free,
-            'full': bool(capacity) and occupied >= capacity,
+            'full': is_full and not can_consider_racks,
         })
     return data
 
@@ -206,6 +229,7 @@ def truck_create(request):
     """
     استلام بضاعة (سيارة جديدة)
     """
+    capacity_issue = None
     if request.method == 'POST':
         form = TruckReceiptForm(request.POST, request.FILES)
         if form.is_valid():
@@ -214,7 +238,8 @@ def truck_create(request):
                 truck = ReceptionService.process_truck_reception(
                     data=form.cleaned_data,
                     files=request.FILES,
-                    user=request.user
+                    user=request.user,
+                    use_double_tier_racks=request.POST.get('use_double_tier_racks') == '1',
                 )
                 if truck.on_pallets and truck.pallet_count:
                     messages.success(request, f'تم استلام السيارة بنجاح برقم دفعة: {truck.lot_number} وتوليد {truck.pallet_count} طبلية.')
@@ -224,7 +249,10 @@ def truck_create(request):
                     messages.warning(request, f'تنبيه: حقول غير حرجة ناقصة ({truck.missing_fields_summary}). تم إدراجها في جرس الإشعارات.')
                 return redirect('truck_detail', pk=truck.pk)
             except ValidationError as e:
-                messages.error(request, str(e.message if hasattr(e, 'message') else e))
+                if isinstance(e, ColdStoreCapacityError):
+                    capacity_issue = e
+                else:
+                    messages.error(request, str(e.message if hasattr(e, 'message') else e))
             except Exception as e:
                 messages.error(request, f'حدث خطأ غير متوقع: {str(e)}')
     else:
@@ -244,6 +272,7 @@ def truck_create(request):
         'form': form,
         'title': 'استلام سيارة جديدة (وصول بضاعة)',
         'shelves_list': _shelves_snapshot(),
+        'capacity_issue': capacity_issue,
     })
 
 
@@ -328,7 +357,9 @@ def truck_edit(request, pk):
 @login_required
 def pallet_detail(request, pk):
     pallet = get_object_or_404(
-        Pallet.objects.select_related('truck_receipt', 'trader', 'crop', 'box_type', 'cold_store', 'shelf'),
+        Pallet.objects.select_related(
+            'truck_receipt', 'trader', 'crop', 'box_type', 'cold_store', 'shelf', 'double_tier_base'
+        ).prefetch_related('double_tier_upper_pallets'),
         pk=pk
     )
     qr_data = pallet.get_qr_data()
@@ -412,10 +443,14 @@ def cold_store_list(request):
     trader_legend = [{'name': t.name, 'code': t.code, 'color': trader_colors[t.id]} for t in traders_ordered]
 
     # تجميع الطبالي دفعة واحدة بدل استعلام لكل سيخ (منع N+1)
+    upper_base_ids = set(Pallet.objects.filter(
+        status=Pallet.Status.IN_COOLING, double_tier_base__isnull=False
+    ).values_list('double_tier_base_id', flat=True))
     pallets_by_shelf = {}
     for p in Pallet.objects.filter(status=Pallet.Status.IN_COOLING).select_related(
-        'trader', 'crop', 'box_type'
+        'trader', 'crop', 'box_type', 'double_tier_base'
     ).order_by('shelf_id', 'pallet_code'):
+        p.has_upper_tier = p.pk in upper_base_ids
         pallets_by_shelf.setdefault(p.shelf_id, []).append(p)
 
     packed_by_shelf = {}
@@ -434,6 +469,13 @@ def cold_store_list(request):
     packed_occupied_by_store = dict(
         PackedPallet.objects.filter(status=PackedPallet.Status.IN_COOLING)
         .values_list('cold_store_id')
+        .annotate(c=Count('id'))
+        .values_list('cold_store_id', 'c')
+    )
+    double_tier_occupied_by_store = dict(
+        Pallet.objects.filter(
+            status=Pallet.Status.IN_COOLING, double_tier_base__isnull=False
+        ).values_list('cold_store_id')
         .annotate(c=Count('id'))
         .values_list('cold_store_id', 'c')
     )
@@ -472,6 +514,7 @@ def cold_store_list(request):
                 'raw_pallet_count': raw_count,
                 'packed_pallet_count': packed_count,
                 'total_pallet_count': raw_count + packed_count,
+                'storage_slot_occupied': shelf.storage_slot_occupied,
                 # These are different business units (farm crates vs sale
                 # cartons); never add them into a misleading combined total.
                 'raw_boxes': raw_boxes,
@@ -489,16 +532,21 @@ def cold_store_list(request):
         ]
         occupied_count = occupied_by_store.get(store.id, 0)
         packed_count = packed_occupied_by_store.get(store.id, 0)
+        upper_count = double_tier_occupied_by_store.get(store.id, 0)
+        occupied_slots = max(0, occupied_count + packed_count - upper_count)
         shelves_data.append({
             'store': store,
             'shelves': store_shelves,
             'unassigned_raw': unassigned_raw,
             'unassigned_packed': unassigned_packed,
             'occupied': occupied_count + packed_count,
+            'occupied_slots': occupied_slots,
+            'double_tier_racks_in_use': upper_count,
+            'double_tier_racks_available': max(0, store.double_tier_rack_count - upper_count),
             'raw_occupied': occupied_count,
             'packed_occupied': packed_count,
             'occupancy_rate': (
-                round(((occupied_count + packed_count) / store.capacity_pallets) * 100, 1)
+                round((occupied_slots / store.capacity_pallets) * 100, 1)
                 if store.capacity_pallets and store.capacity_pallets > 0 else None
             ),
         })
@@ -550,6 +598,29 @@ def cold_store_create(request):
     return render(request, 'operations/cold_store_form.html', {
         'form': form,
         'title': 'إضافة براد جديد',
+    })
+
+
+@login_required
+@manager_required
+def cold_store_edit(request, pk):
+    store = get_object_or_404(ColdStore, pk=pk)
+    if request.method == 'POST':
+        form = ColdStoreForm(request.POST, instance=store)
+        if form.is_valid():
+            updated = form.save()
+            AuditLog.log(
+                request.user, 'UPDATE_COLD_STORE', updated,
+                reason=f'تحديث إعدادات البراد {updated.name}',
+            )
+            messages.success(request, f'تم تحديث إعدادات {updated.name} والحوامل المتاحة.')
+            return redirect('cold_store_list')
+    else:
+        form = ColdStoreForm(instance=store)
+    return render(request, 'operations/cold_store_form.html', {
+        'form': form,
+        'store': store,
+        'title': f'إعدادات البراد {store.name}',
     })
 
 

@@ -17,10 +17,12 @@
                             <div class="col-md-6">
                                 <label class="form-label fw-bold">التاجر *</label>
                                 {{ form.trader }}
+                                {{ form.trader.errors }}
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label fw-bold">نوع البضاعة *</label>
                                 {{ form.crop }}
+                                {{ form.crop.errors }}
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label fw-bold">طريقة التوضيب المعتمدة *</label>
@@ -42,7 +44,12 @@
                                 </div>
                                 {% endif %}
                                 {{ form.source_pallets }}
-                                <small class="text-muted">اضغط زر Ctrl لاختيار أكثر من طبلية معاً. سيتم تحديث حالة الطبالي المختارة فوراً إلى "خرجت للتوضيب".</small>
+                                <div class="d-flex justify-content-between flex-wrap gap-2 mt-2">
+                                    <small class="text-muted">تتغير القائمة تلقائياً حسب التاجر والمحصول. استخدم Ctrl أو ⌘ لاختيار أكثر من طبلية.</small>
+                                    <span class="badge bg-success-subtle text-success-emphasis" id="palletFilterCount" aria-live="polite"></span>
+                                </div>
+                                <div class="form-text">لا تظهر إلا الطبالي الخام التابعة للتاجر والمحصول المحددين، مع عدد الصناديق المتبقية وموقعها.</div>
+                                {{ form.source_pallets.errors }}
                             </div>
                             <div class="col-12">
                                 <label class="form-label fw-bold">ملاحظات وتعليمات التوضيب</label>
@@ -63,4 +70,41 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const trader = document.getElementById('id_trader');
+    const crop = document.getElementById('id_crop');
+    const pallets = document.getElementById('id_source_pallets');
+    const counter = document.getElementById('palletFilterCount');
+    if (!trader || !crop || !pallets) return;
+
+    function filterSourcePallets() {
+        const traderId = trader.value;
+        const cropId = crop.value;
+        let visible = 0;
+        let total = 0;
+        for (const option of pallets.options) {
+            if (!option.value) continue;
+            total += 1;
+            const matches = Boolean(traderId)
+                && option.dataset.traderId === traderId
+                && (!cropId || option.dataset.cropId === cropId);
+            option.hidden = !matches;
+            option.disabled = !matches;
+            if (!matches) option.selected = false;
+            if (matches) visible += 1;
+        }
+        counter.textContent = traderId
+            ? (visible ? `الطبالي المطابقة: ${visible}` : 'لا توجد طبالي متاحة لهذا الاختيار')
+            : `اختر تاجراً لعرض طباليه (${total} متاحة إجمالاً)`;
+    }
+
+    trader.addEventListener('change', filterSourcePallets);
+    crop.addEventListener('change', filterSourcePallets);
+    filterSourcePallets();
+});
+</script>
 {% endblock %}

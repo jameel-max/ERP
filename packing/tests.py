@@ -1904,6 +1904,55 @@ class PackingQuantityLedgerTests(TestCase):
         available_ids = set(form.fields['source_pallets'].queryset.values_list('pk', flat=True))
         self.assertEqual(available_ids, {p.pk for p in self.pallets})
         self.assertNotIn(other_truck.pallets.first().pk, available_ids)
+        rendered_pallet_picker = str(form['source_pallets'])
+        self.assertIn(f'data-trader-id="{self.trader.pk}"', rendered_pallet_picker)
+        self.assertIn(f'data-crop-id="{self.crop.pk}"', rendered_pallet_picker)
+        self.client.force_login(self.accountant)
+        response = self.client.get(reverse('packing_start'), {'trader': self.trader.pk})
+        self.assertContains(response, 'data-pallet-owner-filter="true"')
+        self.assertContains(response, 'تتغير القائمة تلقائياً حسب التاجر والمحصول')
+
+    def test_start_form_creates_session_and_opens_real_packing_page(self):
+        self.client.force_login(self.accountant)
+        response = self.client.post(reverse('packing_start'), {
+            'trader': self.trader.pk,
+            'crop': self.crop.pk,
+            'packing_method': PackingSession.Method.MACHINE,
+            'workshop_name': 'الورشة الرئيسية',
+            'source_pallets': [self.pallets[0].pk],
+            'notes': '',
+        })
+        self.assertEqual(response.status_code, 302)
+        session = PackingSession.objects.get()
+        self.assertEqual(response.url, reverse('packing_detail', args=[session.pk]))
+        detail = self.client.get(response.url)
+        self.assertEqual(detail.status_code, 200)
+        self.pallets[0].refresh_from_db()
+        self.assertEqual(self.pallets[0].status, Pallet.Status.OUT_FOR_PACKING)
+
+    def test_generic_delete_session_succeeds_and_returns_user_to_list(self):
+        session = PackingService.start_packing_session(
+            trader=self.trader, crop=self.crop,
+            packing_method=PackingSession.Method.MACHINE,
+            source_pallets=[self.pallets[0]], user=self.accountant,
+        )
+        self.client.force_login(self.manager)
+        url = reverse('generic_delete', args=['packing', 'packingsession', session.pk])
+        self.assertEqual(self.client.get(url).status_code, 200)
+        response = self.client.post(
+            url,
+            {'next': reverse('packing_list')},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.assertJSONEqual(response.content, {
+            'ok': True,
+            'message': f'تم حذف «{session}» بنجاح.',
+            'redirect': reverse('packing_list'),
+        })
+        self.assertFalse(PackingSession.objects.filter(pk=session.pk).exists())
+        self.pallets[0].refresh_from_db()
+        self.assertEqual(self.pallets[0].status, Pallet.Status.IN_COOLING)
 
     def test_cold_store_occupancy_and_shelf_totals_include_raw_and_packed(self):
         # The fixture starts with four raw pallets; add four more to reach the
@@ -1941,8 +1990,8 @@ class PackingQuantityLedgerTests(TestCase):
         self.client.force_login(self.accountant)
         response = self.client.get(reverse('cold_store_list'))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'إجمالي الإشغال: 13')
-        self.assertContains(response, 'الإجمالي 13 / 25')
+        self.assertContains(response, 'الطبالي: 13')
+        self.assertContains(response, '13 موضع / 25')
         self.assertContains(response, 'خام 8')
         self.assertContains(response, 'موضبة 5')
         self.assertContains(response, '400 صندوق مزرعة')

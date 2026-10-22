@@ -28,6 +28,12 @@
                                 <small class="text-muted">اتركه فارغاً إن لم تكن محددة</small>
                             </div>
                             <div class="col-md-6">
+                                <label class="form-label fw-bold">حوامل الحديد ذات الطابقين</label>
+                                {{ form.double_tier_rack_count }}
+                                <small class="text-muted d-block">عدد الحوامل الموجودة فعلياً في هذا البراد. كل حامل يضيف موضعاً لطبلية خام فوق طبلية خام أخرى.</small>
+                                {{ form.double_tier_rack_count.errors }}
+                            </div>
+                            <div class="col-md-6">
                                 <label class="form-label fw-bold">الحرارة الحالية (مئوية)</label>
                                 {{ form.current_temperature }}
                             </div>
@@ -36,6 +42,7 @@
                                 {{ form.shelves_count }}
                                 <small class="text-muted">{{ form.shelves_count.help_text }}</small>
                             </div>
+                            {% if form.shelves_count.errors %}<div class="col-12 text-danger small">{{ form.shelves_count.errors }}</div>{% endif %}
                             <div class="col-12">
                                 <label class="form-label fw-bold">ملاحظات</label>
                                 {{ form.notes }}
@@ -49,7 +56,7 @@
                                 <i class="bi bi-arrow-right me-1"></i> رجوع
                             </a>
                             <button type="submit" class="btn btn-royal">
-                                <i class="bi bi-save me-1"></i> حفظ البراد وأسياخه
+                                <i class="bi bi-save me-1"></i> حفظ إعدادات البراد
                             </button>
                         </div>
                     </form>

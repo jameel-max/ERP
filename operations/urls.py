@@ -26,6 +26,7 @@ urlpatterns = [
     # البرادات والأسياخ
     path('cold-stores/', views.cold_store_list, name='cold_store_list'),
     path('cold-stores/create/', views.cold_store_create, name='cold_store_create'),
+    path('cold-stores/<int:pk>/edit/', views.cold_store_edit, name='cold_store_edit'),
     path('cold-stores/<int:store_pk>/add-shelf/', views.shelf_create, name='shelf_create'),
     path('cold-stores/temperature-log/', views.cold_store_temperature_log, name='cold_store_temperature_log'),
 

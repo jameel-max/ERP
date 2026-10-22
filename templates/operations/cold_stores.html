@@ -119,8 +119,13 @@
                     </div>
                     <div class="text-end">
                         <span class="badge bg-white text-dark fs-6">
-                            إجمالي الإشغال: {{ store_info.occupied }} {% if store.capacity_pallets %}/ {{ store.capacity_pallets }}{% endif %} طبلية
+                            الطبالي: {{ store_info.occupied }} &bull; المواضع الأرضية: {{ store_info.occupied_slots }}{% if store.capacity_pallets %} / {{ store.capacity_pallets }}{% endif %}
                         </span>
+                        {% if store.double_tier_rack_count %}
+                        <span class="badge bg-warning text-dark fs-6 ms-1">
+                            <i class="bi bi-layers-half me-1"></i> حوامل طابقين: {{ store_info.double_tier_racks_in_use }} مستخدم / {{ store.double_tier_rack_count }} إجمالي
+                        </span>
+                        {% endif %}
                         <span class="badge bg-success text-white fs-6 ms-1">خام: {{ store_info.raw_occupied }}</span>
                         {% if store_info.packed_occupied %}
                         <span class="badge bg-info text-dark fs-6 ms-1">
@@ -131,6 +136,11 @@
                             <a href="{% url 'shelf_create' store.pk %}" class="btn btn-sm btn-light fw-bold">
                                 <i class="bi bi-plus-circle me-1"></i> إضافة سيخ
                             </a>
+                            {% if user.is_manager %}
+                                <a href="{% url 'cold_store_edit' store.pk %}" class="btn btn-sm btn-outline-light fw-bold">
+                                    <i class="bi bi-gear me-1"></i> إعداد السعة والحوامل
+                                </a>
+                            {% endif %}
                             {% include "core/_delete_button.html" with app_label="operations" model_name="coldstore" object_id=store.pk title="حذف البراد بشكل منفرد" %}
                         </div>
                     </div>
@@ -171,7 +181,7 @@
                                         <i class="bi bi-layers me-1 text-primary"></i> السيخ {{ shelf.shelf_number }}
                                     </div>
                                     <div>
-                                        <span class="badge bg-primary me-1">الإجمالي {{ shelf_data.total_pallet_count }}{% if shelf_data.capacity %} / {{ shelf_data.capacity }}{% endif %}</span>
+                                        <span class="badge bg-primary me-1">{{ shelf_data.total_pallet_count }} طبلية • {{ shelf_data.storage_slot_occupied }} موضع{% if shelf_data.capacity %} / {{ shelf_data.capacity }}{% endif %}</span>
                                         <span class="badge bg-success me-1">خام {{ shelf_data.raw_pallet_count }}</span>
                                         <span class="badge bg-info text-dark me-1">موضبة {{ shelf_data.packed_pallet_count }}</span>
                                         {% if shelf_data.free is not None %}
@@ -209,6 +219,7 @@
                                             </div>
                                             <div class="small opacity-90" style="font-size: 0.75rem;">
                                                 <span class="badge bg-success">خام</span>
+                                                {% if p.double_tier_base_id %}<span class="badge bg-warning text-dark">طابق علوي فوق {{ p.double_tier_base.pallet_code }}</span>{% elif p.has_upper_tier %}<span class="badge bg-warning text-dark">قاعدة حامل طابقين</span>{% endif %}
                                                 {{ p.remaining_box_count }} صندوق متبقٍ (من {{ p.box_count }}) • {{ p.remaining_estimated_net_weight }} كغ تقديرياً
                                             </div>
                                             <div class="mt-2 pt-1 border-top border-white-50 text-end">

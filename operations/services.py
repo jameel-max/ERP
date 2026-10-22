@@ -1,5 +1,6 @@
 from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
+from django.db.models import Count, Q
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from core.models import SystemSetting, Notification, AuditLog
@@ -8,6 +9,33 @@ from .models import (
     ColdStoreTemperatureLog, annotate_shelf_occupancy,
 )
 from boxes.models import FarmBoxType
+
+
+class ColdStoreCapacityError(ValidationError):
+    """Capacity shortage carrying the information needed by the reception UI."""
+
+    def __init__(self, cold_store, pallet_count, overflow, usable_racks, available_racks):
+        self.cold_store = cold_store
+        self.pallet_count = pallet_count
+        self.overflow = overflow
+        self.usable_racks = usable_racks
+        self.available_racks = available_racks
+        if usable_racks >= overflow:
+            message = (
+                f'لا توجد مساحة أرضية كافية في «{cold_store.name}»: '
+                f'{overflow} طبلية من أصل {pallet_count} تحتاج موقعاً. '
+                f'يمكن استخدام {overflow} من حوامل الطابقين المتاحة لوضع كل طبلية زائدة '
+                'فوق طبلية خام موجودة.'
+            )
+        else:
+            message = (
+                f'لا توجد سعة كافية في «{cold_store.name}»: تبقّى {overflow} طبلية بلا مكان. '
+                f'المتاح من حوامل الطابقين التي لها قاعدة صالحة: {usable_racks} فقط '
+                f'(إجمالي الحوامل غير المستخدمة: {available_racks}). اختر براداً آخر أو '
+                'أضف حوامل حديدية/حرّر مواقع تخزين ثم أعد المحاولة.'
+            )
+        super().__init__(message, code='cold_store_capacity')
+        self.can_use_racks = usable_racks >= overflow
 
 
 def log_temperature(cold_store, temperature, log_type, pallet=None, user=None, notes=""):
@@ -60,7 +88,7 @@ def distribute_pallets_over_shelves(cold_store, start_shelf, pallet_count):
             left = 0
             break
         # Raw and packed pallets share the same physical shelf capacity.
-        free = max(0, capacity - shelf.total_occupied_pallets)
+        free = max(0, capacity - shelf.storage_slot_occupied)
         if free <= 0:
             continue  # سيخ ممتلئ: تجاهله
         take = min(free, left)
@@ -75,7 +103,10 @@ class ReceptionService:
     """
     @classmethod
     @transaction.atomic
-    def process_truck_reception(cls, data, files=None, user=None, custom_boxes_distribution=None):
+    def process_truck_reception(
+        cls, data, files=None, user=None, custom_boxes_distribution=None,
+        use_double_tier_racks=False,
+    ):
         settings_obj = SystemSetting.get_settings()
 
         # 1. التحقق من الحقول الحرجة وفق القائمة المعتمدة في الإعدادات (البند خامساً)
@@ -94,10 +125,13 @@ class ReceptionService:
         crop = data['crop'] if isinstance(data['crop'], Crop) else Crop.objects.get(id=data['crop'])
         box_type = data['box_type'] if isinstance(data['box_type'], FarmBoxType) else FarmBoxType.objects.get(id=data['box_type'])
         cold_store = data['cold_store'] if isinstance(data['cold_store'], ColdStore) else ColdStore.objects.get(id=data['cold_store'])
+        # Serialize the capacity and rack inventory check for this cold store.
+        cold_store = ColdStore.objects.select_for_update().get(pk=cold_store.pk)
 
         shelf = None
         if data.get('shelf'):
             shelf = data['shelf'] if isinstance(data['shelf'], Shelf) else Shelf.objects.get(id=data['shelf'])
+            shelf = Shelf.objects.select_for_update().get(pk=shelf.pk)
             if shelf.cold_store_id != cold_store.id:
                 raise ValidationError("السيخ المختار لا ينتمي إلى هذا البراد.")
 
@@ -171,7 +205,10 @@ class ReceptionService:
         # أو رتّبها العمال على طبالي في المشغل بعد وصولها بكمات). خصم وزن الطبالي وحده
         # يتوقف على خيار «نزلت البضاعة على طبالي» ويُطبَّق داخل حساب الأوزان.
         if pallet_count > 0:
-            cls._generate_pallets_for_truck(truck, custom_boxes_distribution)
+            cls._generate_pallets_for_truck(
+                truck, custom_boxes_distribution,
+                use_double_tier_racks=use_double_tier_racks,
+            )
 
         # سجل درجة حرارة البراد عند الإدخال (إن سُجّلت)
         log_temperature(
@@ -213,7 +250,9 @@ class ReceptionService:
         return truck
 
     @classmethod
-    def _generate_pallets_for_truck(cls, truck, custom_boxes_distribution=None):
+    def _generate_pallets_for_truck(
+        cls, truck, custom_boxes_distribution=None, use_double_tier_racks=False,
+    ):
         """
         توليد الطبالي: الدفعة + رقم الطبلية (2026-0143-P01...)
         مع رمز GS1 SSCC وربطها بالبراد والسيخ
@@ -245,26 +284,46 @@ class ReceptionService:
         # توزيع الطبالي على أسياخ البراد: يبدأ من السيخ المختار وينتقل للسيخ التالي
         # عند امتلائه، ولا يستخدم الأسياخ الممتلئة أبداً.
         shelf_sequence = [truck.shelf] * pallet_count
+        floor_pallet_count = pallet_count
+        eligible_bases = []
         if truck.cold_store_id and truck.shelf_id:
             assignments, overflow = distribute_pallets_over_shelves(
                 truck.cold_store, truck.shelf, pallet_count
             )
             if overflow:
-                raise ValidationError(
-                    f"لا توجد سعة كافية في أسياخ البراد «{truck.cold_store.name}» لاستيعاب "
-                    f"{pallet_count} طبلية — تبقّى {overflow} طبلية بلا مكان. "
-                    "أضِف أسياخاً أو وسّع سعة الأسياخ ثم أعد المحاولة."
+                floor_pallet_count = pallet_count - overflow
+                eligible_bases = list(
+                    Pallet.objects.select_for_update().filter(
+                        cold_store=truck.cold_store,
+                        status=Pallet.Status.IN_COOLING,
+                        double_tier_base__isnull=True,
+                        shelf__isnull=False,
+                    ).annotate(
+                        active_upper_count=Count(
+                            'double_tier_upper_pallets',
+                            filter=Q(double_tier_upper_pallets__status=Pallet.Status.IN_COOLING),
+                        )
+                    ).filter(active_upper_count=0).select_related('shelf').order_by('shelf_id', 'pallet_code')
                 )
+                available_racks = truck.cold_store.double_tier_racks_available
+                usable_racks = min(available_racks, len(eligible_bases) + floor_pallet_count)
+                if usable_racks < overflow or not use_double_tier_racks:
+                    raise ColdStoreCapacityError(
+                        truck.cold_store, pallet_count, overflow, usable_racks, available_racks
+                    )
             if assignments:
                 shelf_sequence = []
                 for shelf, count in assignments:
                     shelf_sequence.extend([shelf] * count)
-                while len(shelf_sequence) < pallet_count:
+                while len(shelf_sequence) < floor_pallet_count:
                     shelf_sequence.append(truck.shelf)
+            if overflow and use_double_tier_racks:
+                shelf_sequence = shelf_sequence[:floor_pallet_count] + [truck.shelf] * overflow
 
         total_net_weight = truck.calculated_net_weight
 
         allocated_net_weight = Decimal('0.000')
+        created_pallets = []
         for idx, boxes_on_pallet in enumerate(distribution, start=1):
             pallet_code = f"{truck.lot_number}-P{idx:02d}"
             sscc = Pallet.generate_sscc(pallet_code)
@@ -299,6 +358,7 @@ class ReceptionService:
                 status=Pallet.Status.IN_COOLING,
                 notes=truck.notes
             )
+            created_pallets.append(pallet)
 
             # سجل حركة التخزين الأولى
             PalletMovementLog.objects.create(
@@ -309,6 +369,18 @@ class ReceptionService:
                 moved_by=truck.created_by,
                 notes='إدخال وتخزين أولي عند استلام السيارة'
             )
+
+        if floor_pallet_count < pallet_count:
+            bases = eligible_bases + created_pallets[:floor_pallet_count]
+            upper_pallets = created_pallets[floor_pallet_count:]
+            for upper_pallet, base_pallet in zip(upper_pallets, bases):
+                upper_pallet.shelf = base_pallet.shelf
+                upper_pallet.double_tier_base = base_pallet
+                upper_pallet.save(update_fields=['shelf', 'double_tier_base'])
+                PalletMovementLog.objects.filter(pallet=upper_pallet, movement_type='INITIAL_STORAGE').update(
+                    to_shelf=base_pallet.shelf,
+                    notes=f'تخزين على الطابق العلوي لحامل حديد فوق الطبلية {base_pallet.pallet_code}',
+                )
 
 
 class StorageService:
@@ -332,6 +404,10 @@ class StorageService:
         pallet = Pallet.objects.select_for_update().select_related('cold_store', 'shelf').get(pk=pallet.pk)
         old_cold_store = pallet.cold_store
         old_shelf = pallet.shelf
+        is_upper_tier = pallet.double_tier_base_id is not None
+        has_upper_tier = pallet.double_tier_upper_pallets.filter(
+            status=Pallet.Status.IN_COOLING
+        ).exists()
 
         if old_cold_store.id == to_cold_store.id and getattr(old_shelf, 'id', None) == getattr(to_shelf, 'id', None):
             return pallet  # نفس الموقع لا تغيير
@@ -339,27 +415,55 @@ class StorageService:
         # فحص سعة البراد المستهدف إذا كانت محددة
         if to_cold_store.capacity_pallets:
             from packing.models import PackedPallet
-            current_count = (
-                Pallet.objects.filter(cold_store=to_cold_store, status=Pallet.Status.IN_COOLING).exclude(id=pallet.id).count()
-                + PackedPallet.objects.filter(cold_store=to_cold_store, status=PackedPallet.Status.IN_COOLING).count()
+            raw = Pallet.objects.filter(
+                cold_store=to_cold_store, status=Pallet.Status.IN_COOLING
+            ).count()
+            upper = Pallet.objects.filter(
+                cold_store=to_cold_store, status=Pallet.Status.IN_COOLING,
+                double_tier_base__isnull=False,
+            ).count()
+            packed = PackedPallet.objects.filter(
+                cold_store=to_cold_store, status=PackedPallet.Status.IN_COOLING
+            ).count()
+            current_count = raw - upper + packed
+            needs_new_slot = (
+                old_cold_store.id != to_cold_store.id
+                or is_upper_tier
+                or has_upper_tier
             )
-            if current_count >= to_cold_store.capacity_pallets:
-                raise ValidationError(f"البراد المستهدف ({to_cold_store.name}) ممتلئ! السعة: {to_cold_store.capacity_pallets} طبلية.")
+            if needs_new_slot and current_count >= to_cold_store.capacity_pallets:
+                raise ValidationError(
+                    f"البراد المستهدف ({to_cold_store.name}) ممتلئ من ناحية مواضع الأرض. "
+                    f"السعة: {to_cold_store.capacity_pallets} موضعاً."
+                )
 
         # فحص سعة السيخ المستهدف (المحدد أو المشتق من سعة البراد)
         if to_shelf is not None:
             shelf_capacity = to_shelf.effective_capacity
             if shelf_capacity:
                 from packing.models import PackedPallet
-                shelf_count = (
-                    Pallet.objects.filter(shelf=to_shelf, status=Pallet.Status.IN_COOLING).exclude(id=pallet.id).count()
-                    + PackedPallet.objects.filter(shelf=to_shelf, status=PackedPallet.Status.IN_COOLING).count()
-                )
+                raw = Pallet.objects.filter(shelf=to_shelf, status=Pallet.Status.IN_COOLING).count()
+                upper = Pallet.objects.filter(
+                    shelf=to_shelf, status=Pallet.Status.IN_COOLING,
+                    double_tier_base__isnull=False,
+                ).count()
+                shelf_count = raw - upper + PackedPallet.objects.filter(
+                    shelf=to_shelf, status=PackedPallet.Status.IN_COOLING
+                ).count()
                 if shelf_count >= shelf_capacity:
                     raise ValidationError(
                         f"السيخ «{to_shelf.shelf_number}» في {to_cold_store.name} ممتلئ! "
                         f"السعة: {shelf_capacity} طبلية. اختر سيخاً آخر متاحاً."
                     )
+
+        # Moving a lower pallet leaves its upper pallet on the former floor
+        # slot; moving an upper pallet releases the iron rack.
+        if has_upper_tier:
+            pallet.double_tier_upper_pallets.filter(
+                status=Pallet.Status.IN_COOLING
+            ).update(double_tier_base=None)
+        if is_upper_tier:
+            pallet.double_tier_base = None
 
         # تحديث الطبلية
         pallet.cold_store = to_cold_store

@@ -59,6 +59,7 @@ class CropForm(forms.ModelForm):
 class ColdStoreForm(forms.ModelForm):
     shelves_count = forms.IntegerField(
         initial=4,
+        required=False,
         min_value=1,
         max_value=50,
         label='عدد الأسياخ داخل البراد',
@@ -68,14 +69,35 @@ class ColdStoreForm(forms.ModelForm):
 
     class Meta:
         model = ColdStore
-        fields = ['code', 'name', 'capacity_pallets', 'current_temperature', 'notes']
+        fields = ['code', 'name', 'capacity_pallets', 'double_tier_rack_count', 'current_temperature', 'notes']
         widgets = {
             'code': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'مثال: CS-01'}),
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'مثال: البراد الأول'}),
             'capacity_pallets': forms.NumberInput(attrs={'class': 'form-control', 'min': '1'}),
+            'double_tier_rack_count': forms.NumberInput(attrs={'class': 'form-control', 'min': '0'}),
             'current_temperature': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.1'}),
             'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk:
+            self.fields['shelves_count'].initial = self.instance.shelves.count()
+            self.fields['shelves_count'].disabled = True
+            self.fields['shelves_count'].help_text = 'عدد الأسياخ الحالي؛ إدارة إضافة الأسياخ من صفحة البرادات.'
+        else:
+            self.fields['shelves_count'].required = True
+
+    def clean_double_tier_rack_count(self):
+        count = self.cleaned_data['double_tier_rack_count']
+        if self.instance.pk:
+            in_use = self.instance.double_tier_racks_in_use
+            if count < in_use:
+                raise forms.ValidationError(
+                    f'لا يمكن ضبط العدد على {count}؛ يوجد {in_use} حامل مستخدم حالياً. '
+                    'أعد الطبالي العلوية إلى الأرض أولاً.'
+                )
+        return count
 
 
 class ShelfForm(forms.ModelForm):

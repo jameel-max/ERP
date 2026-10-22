@@ -219,6 +219,45 @@
         </div>
     </div>
 </div>
+{% if capacity_issue %}
+<div class="modal fade" id="capacityDecisionModal" tabindex="-1" aria-labelledby="capacityDecisionTitle" aria-modal="true" role="dialog" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-warning-subtle">
+                <h5 class="modal-title fw-bold" id="capacityDecisionTitle"><i class="bi bi-boxes me-2"></i>اختر طريقة التخزين قبل اعتماد الاستلام</h5>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">{{ capacity_issue.message }}</p>
+                {% if capacity_issue.can_use_racks %}
+                <div class="alert alert-success d-flex gap-2 mb-3">
+                    <i class="bi bi-lightbulb-fill fs-5"></i>
+                    <div><strong>اقتراح النظام:</strong> يوجد ما يكفي من حوامل الطابقين ذات القواعد الصالحة. سيضع النظام كل طبلية زائدة فوق طبلية خام محددة، ويسجل الحامل المستخدم ويحرره تلقائياً عند إخراج الطبالي.</div>
+                </div>
+                {% else %}
+                <div class="alert alert-info small mb-3">
+                    لا يمكن استخدام حامل فوق موضع فارغ؛ يحتاج كل حامل إلى طبلية خام سفلية موجودة. غيّر البراد المختار أو اطلب من المدير تحديث مخزون الحوامل.
+                </div>
+                {% endif %}
+                <p class="small text-muted mb-0">لم يُحفظ الاستلام بعد، ولم تُنشأ أي طبلية. يمكنك تغيير البراد والسيخ في النموذج ثم المحاولة مجدداً.</p>
+            </div>
+            <div class="modal-footer d-flex flex-wrap justify-content-between">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" id="chooseAnotherStoreBtn">
+                    <i class="bi bi-arrow-repeat me-1"></i> اختيار براد آخر
+                </button>
+                {% if capacity_issue.can_use_racks %}
+                <button type="submit" form="truckForm" name="use_double_tier_racks" value="1" class="btn btn-success">
+                    <i class="bi bi-layers-half me-1"></i> نعم، استخدم {{ capacity_issue.overflow }} حامل طابقين
+                </button>
+                {% elif user.is_manager %}
+                <a href="{% url 'cold_store_edit' capacity_issue.cold_store.pk %}" class="btn btn-outline-primary">
+                    <i class="bi bi-gear me-1"></i> تحديث عدد الحوامل
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {{ shelves_list|json_script:"shelvesData" }}
 {% endblock %}
 
@@ -248,6 +287,16 @@ document.addEventListener('DOMContentLoaded', function() {
     const previewApparent = document.getElementById('previewApparentNet');
     const previewBoxesTare = document.getElementById('previewBoxesTare');
     const previewPalletsTare = document.getElementById('previewPalletsTare');
+
+    {% if capacity_issue %}
+    const capacityModalElement = document.getElementById('capacityDecisionModal');
+    if (capacityModalElement && window.bootstrap) {
+        new bootstrap.Modal(capacityModalElement).show();
+        document.getElementById('chooseAnotherStoreBtn')?.addEventListener('click', function () {
+            document.getElementById('id_cold_store')?.focus();
+        });
+    }
+    {% endif %}
     const previewCalculated = document.getElementById('previewCalculatedNet');
 
     function onPallets() {

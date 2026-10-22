@@ -1287,20 +1287,28 @@ class PackingService:
             raw_count = Pallet.objects.filter(
                 cold_store=cold_store, status=Pallet.Status.IN_COOLING
             ).count()
+            upper_tier_count = Pallet.objects.filter(
+                cold_store=cold_store, status=Pallet.Status.IN_COOLING,
+                double_tier_base__isnull=False,
+            ).count()
             packed_count = PackedPallet.objects.filter(
                 cold_store=cold_store, status=PackedPallet.Status.IN_COOLING
             ).exclude(pk__in=moving_ids).count()
-            if raw_count + packed_count + entering_store > cold_store.capacity_pallets:
+            if raw_count - upper_tier_count + packed_count + entering_store > cold_store.capacity_pallets:
                 raise ValidationError(f"البراد المستهدف ({cold_store.name}) لا يتسع للطبالي المحددة.")
         if shelf is not None and shelf.effective_capacity:
             raw_count = Pallet.objects.filter(
                 shelf=shelf, status=Pallet.Status.IN_COOLING
             ).count()
+            upper_tier_count = Pallet.objects.filter(
+                shelf=shelf, status=Pallet.Status.IN_COOLING,
+                double_tier_base__isnull=False,
+            ).count()
             packed_count = PackedPallet.objects.filter(
                 shelf=shelf, status=PackedPallet.Status.IN_COOLING
             ).exclude(pk__in=moving_ids).count()
             entering_shelf = len(packed_pallets)
-            if raw_count + packed_count + entering_shelf > shelf.effective_capacity:
+            if raw_count - upper_tier_count + packed_count + entering_shelf > shelf.effective_capacity:
                 raise ValidationError(f"السيخ «{shelf.shelf_number}» ممتلئ ولا يتسع للطبالي المحددة.")
 
         now = timezone.now()

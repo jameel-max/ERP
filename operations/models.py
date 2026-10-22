@@ -1,5 +1,6 @@
 from django.db import models
-from django.db.models import Count, Case, When, Value, F, ExpressionWrapper, DecimalField
+from django.db.models import Count, Case, When, Value, F, ExpressionWrapper, DecimalField, Q
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.conf import settings
 from decimal import Decimal, ROUND_HALF_UP
@@ -198,6 +199,11 @@ class ColdStore(models.Model):
         verbose_name='السعة الإجمالية للطبالي (فارغ = غير محدد)',
         help_text='إجمالي سعة البراد بالطبالي، وتُستخدم لحساب سعة كل سيخ تلقائياً.',
     )
+    double_tier_rack_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name='حوامل الحديد ذات الطابقين المتاحة',
+        help_text='كل حامل يضيف موضعاً علوياً واحداً فوق طبلية خام مخزنة. يُخصم آلياً عند استخدامه.',
+    )
     current_temperature = models.DecimalField(
         max_digits=4,
         decimal_places=1,
@@ -239,8 +245,26 @@ class ColdStore(models.Model):
         return self.occupied_pallets + self.packed_occupied_pallets
 
     @property
+    def double_tier_racks_in_use(self):
+        if hasattr(self, '_double_tier_racks_in_use_cached'):
+            return self._double_tier_racks_in_use_cached
+        return self.pallets.filter(
+            status=Pallet.Status.IN_COOLING, double_tier_base__isnull=False
+        ).count()
+
+    @property
+    def double_tier_racks_available(self):
+        return max(0, self.double_tier_rack_count - self.double_tier_racks_in_use)
+
+    @property
+    def storage_slot_occupied(self):
+        if hasattr(self, '_storage_slot_occupied_cached'):
+            return self._storage_slot_occupied_cached
+        return max(0, self.total_occupied_pallets - self.double_tier_racks_in_use)
+
+    @property
     def occupancy_rate(self):
-        occupied = self.total_occupied_pallets
+        occupied = self.storage_slot_occupied
         if self.capacity_pallets and self.capacity_pallets > 0:
             return round((occupied / self.capacity_pallets) * 100, 1)
         return None
@@ -295,6 +319,15 @@ class Shelf(models.Model):
         return self.occupied_pallets + self.packed_occupied_pallets
 
     @property
+    def storage_slot_occupied(self):
+        if hasattr(self, '_storage_slot_occupied_cached'):
+            return self._storage_slot_occupied_cached
+        upper_count = self.pallets.filter(
+            status=Pallet.Status.IN_COOLING, double_tier_base__isnull=False
+        ).count()
+        return max(0, self.total_occupied_pallets - upper_count)
+
+    @property
     def effective_capacity(self):
         """
         السعة الفعلية للسيخ بالطبالي:
@@ -321,13 +354,13 @@ class Shelf(models.Model):
         capacity = self.effective_capacity
         if not capacity or capacity <= 0:
             return None
-        return max(0, capacity - self.total_occupied_pallets)
+        return max(0, capacity - self.storage_slot_occupied)
 
     @property
     def is_full(self):
         """هل امتلأ السيخ (مشغول ≥ السعة)؟ الأسياخ غير المحدودة لا تمتلئ."""
         capacity = self.effective_capacity
-        return bool(capacity) and self.total_occupied_pallets >= capacity
+        return bool(capacity) and self.storage_slot_occupied >= capacity
 
 
 def annotate_cold_store_occupancy(stores):
@@ -350,9 +383,20 @@ def annotate_cold_store_occupancy(stores):
         .annotate(c=Count('id'))
         .values_list('cold_store_id', 'c')
     )
+    upper_counts = dict(
+        Pallet.objects.filter(
+            status=Pallet.Status.IN_COOLING, double_tier_base__isnull=False
+        ).values_list('cold_store_id')
+        .annotate(c=Count('id'))
+        .values_list('cold_store_id', 'c')
+    )
     for store in stores:
         store._occupied_pallets_cached = counts.get(store.id, 0)
         store._packed_occupied_pallets_cached = packed_counts.get(store.id, 0)
+        store._double_tier_racks_in_use_cached = upper_counts.get(store.id, 0)
+        store._storage_slot_occupied_cached = max(
+            0, counts.get(store.id, 0) + packed_counts.get(store.id, 0) - upper_counts.get(store.id, 0)
+        )
     return stores
 
 
@@ -376,6 +420,13 @@ def annotate_shelf_occupancy(shelves):
         .annotate(c=Count('id'))
         .values_list('shelf_id', 'c')
     )
+    upper_counts = dict(
+        Pallet.objects.filter(
+            status=Pallet.Status.IN_COOLING, double_tier_base__isnull=False
+        ).values_list('shelf_id')
+        .annotate(c=Count('id'))
+        .values_list('shelf_id', 'c')
+    )
     store_capacities = dict(ColdStore.objects.values_list('id', 'capacity_pallets'))
     shelves_per_store = dict(
         Shelf.objects.values_list('cold_store_id')
@@ -385,6 +436,9 @@ def annotate_shelf_occupancy(shelves):
     for shelf in shelves:
         shelf._occupied_pallets_cached = counts.get(shelf.id, 0)
         shelf._packed_occupied_pallets_cached = packed_counts.get(shelf.id, 0)
+        shelf._storage_slot_occupied_cached = max(
+            0, counts.get(shelf.id, 0) + packed_counts.get(shelf.id, 0) - upper_counts.get(shelf.id, 0)
+        )
         capacity = shelf.capacity_pallets
         if not capacity or capacity <= 0:
             store_capacity = store_capacities.get(shelf.cold_store_id)
@@ -739,6 +793,15 @@ class Pallet(models.Model):
         related_name='pallets',
         verbose_name='السيخ / الرف'
     )
+    double_tier_base = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='double_tier_upper_pallets',
+        verbose_name='الطبلية السفلية لحامل الطابقين',
+        help_text='معبأ فقط للطبلية العلوية الموضوعة على حامل حديد ذي طابقين.',
+    )
     temperature = models.DecimalField(
         max_digits=4,
         decimal_places=1,
@@ -767,6 +830,13 @@ class Pallet(models.Model):
         verbose_name = 'طبلية'
         verbose_name_plural = 'الطبالي'
         ordering = ['pallet_code']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['double_tier_base'],
+                condition=Q(double_tier_base__isnull=False),
+                name='uniq_double_tier_upper_per_base',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.pallet_code} ({self.trader.name} - {self.crop.name})"
@@ -778,6 +848,30 @@ class Pallet(models.Model):
         """
         if self._state.adding and not self.remaining_box_count and self.box_count:
             self.remaining_box_count = self.box_count
+        if self.double_tier_base_id and self.status == self.Status.IN_COOLING:
+            if self.double_tier_base_id == self.pk:
+                raise ValidationError('لا يمكن للطبلية أن تكون طابقاً علوياً فوق نفسها.')
+            base = type(self).objects.filter(pk=self.double_tier_base_id).first()
+            if not base:
+                raise ValidationError('الطبلية السفلية لحامل الطابقين غير موجودة.')
+            if base.status != self.Status.IN_COOLING or self.status != self.Status.IN_COOLING:
+                raise ValidationError('لا يجوز ربط حامل طابقين إلا بطبالي موجودة في البراد.')
+            if base.cold_store_id != self.cold_store_id or base.shelf_id != self.shelf_id:
+                raise ValidationError('يجب أن تكون الطبلية العلوية والسفلية في البراد والسيخ نفسيهما.')
+            if base.double_tier_base_id:
+                raise ValidationError('لا يمكن وضع طابق ثالث فوق حامل الطابقين.')
+        if self.pk and self.status != self.Status.IN_COOLING:
+            old_status = type(self).objects.filter(pk=self.pk).values_list('status', flat=True).first()
+            if old_status == self.Status.IN_COOLING:
+                # When the lower pallet leaves cold storage, the upper pallet
+                # remains on the same floor slot and the iron rack is released.
+                self.double_tier_upper_pallets.filter(
+                    status=self.Status.IN_COOLING
+                ).update(double_tier_base=None)
+                if self.double_tier_base_id:
+                    self.double_tier_base = None
+                    if kwargs.get('update_fields') is not None:
+                        kwargs['update_fields'] = set(kwargs['update_fields']) | {'double_tier_base'}
         super().save(*args, **kwargs)
 
     @property

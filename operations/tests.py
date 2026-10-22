@@ -8,7 +8,7 @@ from datetime import timedelta
 from core.models import User, SystemSetting, Notification, AuditLog
 from operations.models import Trader, Crop, ColdStore, Shelf, TruckReceipt, Pallet, PalletMovementLog, TraderPackingRate
 from boxes.models import FarmBoxType
-from operations.services import ReceptionService, StorageService
+from operations.services import ReceptionService, StorageService, ColdStoreCapacityError
 from invoicing.models import Invoice
 
 
@@ -606,6 +606,7 @@ class DuplicateEntryGuardTests(TestCase):
             'code': 'CS-99',
             'name': 'براد جديد',
             'capacity_pallets': '10',
+            'double_tier_rack_count': '0',
             'current_temperature': '2',
             'shelves_count': '4',
             'notes': '',
@@ -645,7 +646,7 @@ class ShelfSpilloverTests(TestCase):
         self.shelf_b = Shelf.objects.create(cold_store=self.store, shelf_number='2')
         self.shelf_c = Shelf.objects.create(cold_store=self.store, shelf_number='3')
 
-    def _receive(self, pallet_count, shelf, box_count=None):
+    def _receive(self, pallet_count, shelf, box_count=None, use_double_tier_racks=False):
         box_count = box_count or pallet_count * 80
         return ReceptionService.process_truck_reception(data={
             'trader': self.trader.id,
@@ -657,7 +658,7 @@ class ShelfSpilloverTests(TestCase):
             'pallet_count': pallet_count,
             'cold_store': self.store.id,
             'shelf': shelf.id,
-        }, user=self.accountant)
+        }, user=self.accountant, use_double_tier_racks=use_double_tier_racks)
 
     def test_derived_capacity_from_store_total(self):
         self.assertEqual(self.shelf_a.effective_capacity, 5)
@@ -712,6 +713,51 @@ class ShelfSpilloverTests(TestCase):
             self._receive(16, self.shelf_a, box_count=16 * 80)
         self.assertIn('لا توجد سعة كافية', str(ctx.exception))
         self.assertEqual(Pallet.objects.count(), 0)
+
+    def test_available_double_tier_racks_safely_double_occupied_floor_slots(self):
+        self.store.double_tier_rack_count = 5
+        self.store.save(update_fields=['double_tier_rack_count'])
+        self._receive(15, self.shelf_a)
+        receipts_before = TruckReceipt.objects.count()
+
+        with self.assertRaises(ColdStoreCapacityError) as ctx:
+            self._receive(5, self.shelf_a)
+
+        self.assertTrue(ctx.exception.can_use_racks)
+        self.assertEqual(ctx.exception.overflow, 5)
+        self.assertEqual(TruckReceipt.objects.count(), receipts_before)
+
+        truck = self._receive(5, self.shelf_a, use_double_tier_racks=True)
+        upper_pallets = list(truck.pallets.filter(double_tier_base__isnull=False))
+        self.assertEqual(len(upper_pallets), 5)
+        self.assertEqual(
+            len({p.double_tier_base_id for p in upper_pallets}), 5,
+            'Each steel rack must have a distinct lower pallet.',
+        )
+        self.assertEqual(self.store.pallets.filter(status=Pallet.Status.IN_COOLING).count(), 20)
+        self.assertEqual(self.store.storage_slot_occupied, 15)
+        self.assertEqual(self.store.double_tier_racks_in_use, 5)
+        self.assertEqual(self.store.double_tier_racks_available, 0)
+
+        base = upper_pallets[0].double_tier_base
+        base.status = Pallet.Status.OUT_FOR_PACKING
+        base.save(update_fields=['status'])
+        upper = Pallet.objects.get(pk=upper_pallets[0].pk)
+        self.assertIsNone(upper.double_tier_base_id)
+        self.assertEqual(self.store.double_tier_racks_in_use, 4)
+        self.assertEqual(self.store.storage_slot_occupied, 15)
+
+    def test_double_tier_offer_requires_enough_actual_racks_and_bases(self):
+        self.store.double_tier_rack_count = 2
+        self.store.save(update_fields=['double_tier_rack_count'])
+        self._receive(15, self.shelf_a)
+
+        with self.assertRaises(ColdStoreCapacityError) as ctx:
+            self._receive(5, self.shelf_a)
+
+        self.assertFalse(ctx.exception.can_use_racks)
+        self.assertEqual(ctx.exception.available_racks, 2)
+        self.assertEqual(self.store.pallets.filter(status=Pallet.Status.IN_COOLING).count(), 15)
 
 
 class PalletMoveApiTests(TestCase):

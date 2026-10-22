@@ -4,13 +4,29 @@ from operations.models import Trader, Crop, Pallet, BoxType, ColdStore, Shelf
 from operations.forms import ShelfSelect
 
 
+class SourcePalletSelectMultiple(forms.SelectMultiple):
+    """Expose ownership attributes so the picker can react to trader/crop changes."""
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        pallet = getattr(value, 'instance', None)
+        if pallet is not None:
+            option['attrs']['data-trader-id'] = str(pallet.trader_id)
+            option['attrs']['data-crop-id'] = str(pallet.crop_id)
+            option['attrs']['data-pallet-code'] = pallet.pallet_code
+        return option
+
+
 class StartPackingSessionForm(forms.ModelForm):
     source_pallets = forms.ModelMultipleChoiceField(
         queryset=Pallet.objects.filter(
             status=Pallet.Status.IN_COOLING,
             remaining_box_count__gt=0,
         ),
-        widget=forms.SelectMultiple(attrs={'class': 'form-select select2', 'size': '6'}),
+        widget=SourcePalletSelectMultiple(attrs={
+            'class': 'form-select select2', 'size': '8',
+            'data-pallet-owner-filter': 'true',
+        }),
         label='اختر الطبالي لإخراجها من البراد للبدء بالتوضيب'
     )
 
