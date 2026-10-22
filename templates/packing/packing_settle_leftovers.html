@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}تسوية الكميات الخام المتبقية — {{ session.session_code }} | {{ company_name_en }}{% endblock %}
+{% block title %}تحديد مصير الخام المتبقي — {{ session.session_code }} | {{ company_name_en }}{% endblock %}
 
 {% block content %}
 <div class="container mt-4 mb-5">
@@ -9,7 +9,7 @@
             <div class="card shadow-sm border-0">
                 <div class="card-header card-header-royal py-3 d-flex justify-content-between align-items-center">
                     <h5 class="mb-0 fw-bold">
-                        <i class="bi bi-check2-square me-2"></i> تسوية الكميات الخام المتبقية — {{ session.session_code }}
+                        <i class="bi bi-check2-square me-2"></i> تحديد مصير الخام المتبقي — {{ session.session_code }}
                     </h5>
                     <a href="{% url 'packing_detail' session.pk %}" class="btn btn-sm btn-outline-light">
                         <i class="bi bi-arrow-right me-1"></i> رجوع للتفاصيل
@@ -18,11 +18,11 @@
                 <div class="card-body p-4 bg-white">
                     <div class="alert alert-warning border-0 small mb-3">
                         <i class="bi bi-info-circle me-1"></i>
-                        لا يجوز إغلاق عملية التوضيب ما دام في طبالي خام متبقٍ لم يُحدَّد مصيره.
-                        اختر الطبلية ونوع التسوية:
-                        <br>• <strong>إعادة الباقي للبراد</strong> — يبقى الباقي مخزوناً في نفس السيخ، وتخرج الطبلية من طبالي مصدر العملية.
-                        <br>• <strong>تسوية / إتلاف معتمد</strong> — يُصفَّر رصيد الطبلية ويُوثَّق ذلك،
-                        <strong>دون إنشاء أي قيود مالية تلقائية</strong> (الأثر المحاسبي يبقى بيد المحاسب).
+                        لا يجوز إغلاق العملية ما دامت هناك صناديق خام لم تُوضَّب ولم يُسجَّل ما حدث لها.
+                        حدّد الإجراء الفعلي لكل طبلية:
+                        <br>• <strong>إرجاع المتبقي إلى البراد</strong> — تعود الكمية إلى المخزون ويمكن توضيبها لاحقاً.
+                        <br>• <strong>إتلاف / شطب المتبقي</strong> — يُصفَّر رصيد الكمية ويُسجَّل سبب ذلك؛
+                        <strong>ولا ينشئ النظام قيداً مالياً تلقائياً.</strong>
                     </div>
 
                     {% if leftover_pallets %}
@@ -38,18 +38,18 @@
                                 {% csrf_token %}
                                 <input type="hidden" name="pallet" value="{{ p.id }}">
                                 <div class="mb-2">
-                                    <label class="form-label fw-bold">نوع التسوية *</label>
+                                    <label class="form-label fw-bold">ماذا حدث للكمية المتبقية؟ *</label>
                                     <select name="resolution" class="form-select" required>
-                                        <option value="RETURN_TO_STORE">إعادة الباقي للبراد (يبقى مخزوناً)</option>
-                                        <option value="WRITE_OFF">تسوية / إتلاف معتمد</option>
+                                        <option value="RETURN_TO_STORE">أعدتها إلى البراد — تبقى في المخزون</option>
+                                        <option value="WRITE_OFF">أتلفتها / شطبتها — أذكر السبب</option>
                                     </select>
                                 </div>
                                 <div class="mb-2">
-                                    <label class="form-label fw-bold">مبررات التسوية</label>
-                                    <textarea name="notes" rows="2" class="form-control" placeholder="مطلوب في حالة التسوية/الإتلاف"></textarea>
+                                    <label class="form-label fw-bold">ملاحظة أو سبب الإتلاف / الشطب</label>
+                                    <textarea name="notes" rows="2" class="form-control" placeholder="مطلوب فقط عند اختيار الإتلاف / الشطب"></textarea>
                                 </div>
                                 <button type="submit" class="btn btn-royal btn-sm">
-                                    <i class="bi bi-check2 me-1"></i> تسجيل التسوية لهذه الطبلية
+                                    <i class="bi bi-check2 me-1"></i> تأكيد هذا الإجراء للطبلية
                                 </button>
                             </form>
                         </div>

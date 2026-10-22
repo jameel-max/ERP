@@ -475,7 +475,7 @@
                     سؤال المحاسب الإلزامي عند إنهاء العملية.
                     الخيار «لا» يُبقي العملية مفتوحة بحالة «توضيب غير مكتمل» ويعرض
                     الطبلية الخام المفتوحة وصناديقها المتبقية، ولا يُسمح بإغلاق
-                    العملية قبل معالجة المتبقي أو تسجيل تسوية معتمدة.
+                    العملية قبل إدخال النواتج أو تحديد مصير الخام المتبقي.
                 -->
                 <div class="card border-warning mb-4">
                     <div class="card-header bg-warning-subtle py-2">
@@ -843,13 +843,13 @@
 
     <!--
         الكميات الخام المتبقية غير المحسومة + إجراءات معالجتها.
-        لا يُسمح بإغلاق العملية قبل معالجة هذه الكميات أو تسجيل تسوية معتمدة.
+        لا يُسمح بإغلاق العملية قبل توضيب هذه الكميات أو تحديد ما حدث لها.
     -->
     {% if leftover_pallets or session.status == 'INCOMPLETE' %}
     <div class="card shadow-sm mb-4 border-warning">
         <div class="card-header bg-warning-subtle py-3 d-flex justify-content-between align-items-center">
             <h5 class="fw-bold mb-0 text-dark">
-                <i class="bi bi-exclamation-triangle me-2"></i> كميات خام متبقية غير محسومة
+                <i class="bi bi-exclamation-triangle me-2"></i> خام متبقٍ يحتاج إلى تحديد مصيره
             </h5>
             <span class="badge bg-warning text-dark fs-6">{{ leftover_pallets|length }} طبلية</span>
         </div>
@@ -875,7 +875,7 @@
                             <td><span class="badge bg-secondary">{{ p.get_status_display }}</span></td>
                             <td>
                                 <a href="{% url 'packing_settle_leftovers' session.pk %}" class="btn btn-outline-warning btn-sm">
-                                    <i class="bi bi-check2-square me-1"></i> تسجيل تسوية
+                                    <i class="bi bi-check2-square me-1"></i> تحديد مصير هذه الكمية
                                 </a>
                             </td>
                         </tr>
@@ -887,15 +887,15 @@
             <p class="text-muted small mb-2">
                 <i class="bi bi-info-circle me-1"></i>
                 لإكمال التوضيب من الكميات المتاحة: استكمل إدخال النواتج أعلاه مع تحديد مصادرها،
-                أو أضف طبالي خام جديدة من البراد، أو سجّل تسوية معتمدة لمصير الباقي
-                (إعادة للبراد أو تسوية/إتلاف) قبل إغلاق العملية.
+                أو أضف طبالي خام جديدة من البراد، أو حدّد مصير الباقي قبل إغلاق العملية:
+                أعده إلى البراد ليبقى مخزوناً، أو سجّل إتلافه / شطبه مع ذكر السبب.
             </p>
             <div class="d-flex flex-wrap gap-2">
                 <a href="{% url 'packing_add_raw' session.pk %}" class="btn btn-outline-royal btn-sm">
                     <i class="bi bi-plus-circle me-1"></i> إضافة طبالي خام من البراد
                 </a>
                 <a href="{% url 'packing_settle_leftovers' session.pk %}" class="btn btn-outline-warning btn-sm">
-                    <i class="bi bi-check2-square me-1"></i> تسوية الكميات المتبقية
+                    <i class="bi bi-check2-square me-1"></i> تحديد مصير الخام المتبقي
                 </a>
                 <form method="post" action="{% url 'packing_close' session.pk %}" class="d-inline">
                     {% csrf_token %}
@@ -908,11 +908,11 @@
     </div>
     {% endif %}
 
-    <!-- تسويات الكميات الخام المتبقية -->
+    <!-- سجل مصير الكميات الخام المتبقية -->
     {% if leftover_settlements %}
     <div class="card shadow-sm mb-4">
         <div class="card-header bg-white border-bottom py-3">
-            <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-clipboard-check text-primary me-2"></i> تسويات الكميات الخام المتبقية</h5>
+            <h5 class="fw-bold mb-0 text-dark"><i class="bi bi-clipboard-check text-primary me-2"></i> سجل مصير الكميات الخام المتبقية</h5>
         </div>
         <div class="table-responsive">
             <table class="table table-sm table-hover align-middle mb-0">
@@ -920,7 +920,7 @@
                     <tr>
                         <th>الطبلية</th>
                         <th>عدد الصناديق</th>
-                        <th>نوع التسوية</th>
+                        <th>مصير الكمية</th>
                         <th>المبرر</th>
                         <th>نفّذها</th>
                         <th>الوقت</th>

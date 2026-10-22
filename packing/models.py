@@ -585,14 +585,14 @@ class PackingLeftoverSettlement(models.Model):
     لا يجوز إغلاق العملية ما دام في طبالٍ خام متبقٍ لم يُحدَّد مصيره.
     ويُسجَّل هنا مصير الباقي بوضوح:
 
-    - `RETURN_TO_STORE`: إعادة الباقي للبراد (يبقى مخزوناً قابلاً للاستخدام).
-    - `WRITE_OFF`: تسوية/إتلاف معتمد (تُوثَّق الحركة ولا تُنشأ قيود مالية تلقائية).
+    - `RETURN_TO_STORE`: إرجاع المتبقي إلى البراد (يبقى مخزوناً قابلاً للاستخدام).
+    - `WRITE_OFF`: إتلاف/شطب المتبقي (تُوثَّق الحركة ولا تُنشأ قيود مالية تلقائية).
 
     ملاحظة محاسبية: هذا السجل توثيقي فقط ولا يُنشئ إيرادات أو مصروفات.
     """
     class Resolution(models.TextChoices):
-        RETURN_TO_STORE = 'RETURN_TO_STORE', 'إعادة الباقي للبراد (يبقى مخزوناً)'
-        WRITE_OFF = 'WRITE_OFF', 'تسوية / إتلاف معتمد'
+        RETURN_TO_STORE = 'RETURN_TO_STORE', 'إرجاع المتبقي إلى البراد (يبقى في المخزون)'
+        WRITE_OFF = 'WRITE_OFF', 'إتلاف / شطب المتبقي'
 
     session = models.ForeignKey(
         PackingSession,
@@ -608,27 +608,27 @@ class PackingLeftoverSettlement(models.Model):
     )
     box_count = models.PositiveIntegerField(
         default=0,
-        verbose_name='عدد الصناديق التي تمت تسويتها'
+        verbose_name='عدد الصناديق التي حُدّد مصيرها'
     )
     resolution = models.CharField(
         max_length=30,
         choices=Resolution.choices,
-        verbose_name='نوع التسوية'
+        verbose_name='مصير الكمية'
     )
-    notes = models.TextField(blank=True, verbose_name='مبررات التسوية')
+    notes = models.TextField(blank=True, verbose_name='الملاحظة أو سبب الإتلاف / الشطب')
     settled_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name='packing_leftover_settlements',
-        verbose_name='من نفّذ التسوية'
+        verbose_name='من سجّل الإجراء'
     )
-    settled_at = models.DateTimeField(auto_now_add=True, verbose_name='وقت التسوية')
+    settled_at = models.DateTimeField(auto_now_add=True, verbose_name='وقت تسجيل الإجراء')
 
     class Meta:
-        verbose_name = 'تسوية كمية خام متبقية'
-        verbose_name_plural = 'تسويات الكميات الخام المتبقية'
+        verbose_name = 'تحديد مصير كمية خام متبقية'
+        verbose_name_plural = 'تحديد مصير الكميات الخام المتبقية'
         ordering = ['-settled_at', '-id']
 
     def __str__(self):

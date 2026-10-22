@@ -1585,7 +1585,7 @@ class PackingQuantityLedgerTests(TestCase):
     def test_cannot_close_session_with_unresolved_leftovers(self):
         """
         لا يجوز الإغلاق ما دام في طبلية خام متبقٍ لم يُحدَّد مصيره،
-        ولا قبل تسجيل تسوية معتمدة.
+            ولا قبل تحديد مصيرها.
         """
         session = self._start_session([self.pallets[0]])
 
@@ -1614,7 +1614,7 @@ class PackingQuantityLedgerTests(TestCase):
         with self.assertRaises(ValidationError):
             PackingService.close_session(session, user=self.accountant)
 
-        # بعد تسجيل تسوية معتمدة يمكن الإغلاق
+        # بعد تحديد مصير المتبقي يمكن الإغلاق
         PackingService.settle_leftovers(
             session,
             [{'pallet': self.pallets[0].id, 'resolution': 'WRITE_OFF', 'notes': 'تالف أثناء الفرز'}],
@@ -1816,7 +1816,7 @@ class PackingQuantityLedgerTests(TestCase):
         self.assertIn('هل تم توضيب جميع الكميات الخام', body)
         self.assertIn('all_packed', body)
         # عرض الطبلية المفتوحة ومتبقيها
-        self.assertIn('كميات خام متبقية غير محسومة', body)
+        self.assertIn('خام متبقٍ يحتاج إلى تحديد مصيره', body)
 
     def test_add_raw_and_settle_pages_render(self):
         session = self._start_session([self.pallets[0]])
@@ -1835,7 +1835,8 @@ class PackingQuantityLedgerTests(TestCase):
         resp = client.get(reverse('packing_settle_leftovers', args=[session.pk]))
         self.assertEqual(resp.status_code, 200)
         body = resp.content.decode('utf-8')
-        self.assertIn('تسوية الكميات الخام المتبقية', body)
+        self.assertIn('تحديد مصير الخام المتبقي', body)
+        self.assertIn('ماذا حدث للكمية المتبقية؟', body)
         self.assertIn('WRITE_OFF', body)
 
     # ---------------- دفتر التدقيق ----------------

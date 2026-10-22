@@ -542,8 +542,8 @@ class PackingService:
                     )
                     raise ValidationError(
                         "لا يمكن إغلاق العملية: ما زالت هناك كميات خام متبقية غير محسومة — "
-                        f"{details}. استكمل التوضيب من الكميات المتاحة، أو سجّل تسوية معتمدة "
-                        "لمصير الكميات المتبقية قبل الإغلاق."
+                        f"{details}. استكمل التوضيب من الكميات المتاحة، أو حدّد ما حدث "
+                        "للكميات المتبقية قبل الإغلاق."
                     )
                 session.all_packed_confirmed = True
                 session.all_packed_confirmed_by = user
@@ -1060,11 +1060,11 @@ class PackingService:
           **دون إنشاء أي قيود مالية تلقائية** (يبقى الأثر محاسبياً بيد المحاسب).
         """
         if session.is_closed:
-            raise ValidationError("عملية التوضيب مغلقة ولا يمكن تسوية كميات عليها.")
+            raise ValidationError("عملية التوضيب مغلقة ولا يمكن تعديل مصير كميات فيها.")
 
         items = list(items or [])
         if not items:
-            raise ValidationError("يجب اختيار كمية خام متبقية واحدة على الأقل لتسويتها.")
+            raise ValidationError("يجب اختيار طبلية خام متبقية واحدة على الأقل لتحديد مصيرها.")
 
         session_pallet_ids = set(session.source_pallets.values_list('id', flat=True))
         created = []
@@ -1075,14 +1075,14 @@ class PackingService:
             notes = (item.get('notes') or '').strip()
 
             if pallet_id not in session_pallet_ids:
-                raise ValidationError("إحدى الطبالي المطلوب تسويتها ليست مرتبطة بهذه العملية.")
+                raise ValidationError("إحدى الطبالي المطلوب تحديد مصيرها ليست مرتبطة بهذه العملية.")
             if resolution not in (
                 PackingLeftoverSettlement.Resolution.RETURN_TO_STORE,
                 PackingLeftoverSettlement.Resolution.WRITE_OFF,
             ):
-                raise ValidationError("نوع التسوية غير معروف. اختر «إعادة الباقي للبراد» أو «تسوية/إتلاف».")
+                raise ValidationError("اختر إعادة المتبقي إلى البراد أو إتلافه / شطبه.")
             if resolution == PackingLeftoverSettlement.Resolution.WRITE_OFF and not notes:
-                raise ValidationError("تسوية/الإتلاف تتطلب ذكر المبرر في الملاحظات.")
+                raise ValidationError("إتلاف / شطب المتبقي يتطلب ذكر السبب في الملاحظات.")
 
             locked = Pallet.objects.select_for_update().get(id=pallet_id)
             if locked.remaining_box_count <= 0:
@@ -1170,7 +1170,7 @@ class PackingService:
             details = '، '.join(f"{p.pallet_code} ({p.remaining_box_count} صندوق)" for p in leftover)
             raise ValidationError(
                 "لا يمكن إغلاق العملية: ما زالت هناك كميات خام متبقية غير محسومة — "
-                f"{details}. سجّل تسوية معتمدة لمصيرها أولاً."
+                f"{details}. حدّد مصيرها أولاً."
             )
 
         settings_obj = SystemSetting.get_settings()

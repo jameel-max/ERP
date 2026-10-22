@@ -349,7 +349,7 @@ def packing_finalize(request, pk):
             if session.status == PackingSession.Status.INCOMPLETE:
                 msg = (
                     f'تم تسجيل النواتج. العملية ما زالت مفتوحة: '
-                    f'تبقّى خام غير موضب — استكمل التوضيب أو سجّل تسوية معتمدة لمصيره.'
+                    f'تبقّى خام غير موضب — استكمل التوضيب أو حدّد مصير الكمية المتبقية.'
                 )
                 messages.warning(request, msg)
             elif session.requires_manager_approval:
@@ -431,7 +431,7 @@ def packing_settle_leftovers(request, pk):
     """
     session = get_object_or_404(PackingSession, pk=pk)
     if session.is_closed:
-        messages.warning(request, 'عملية التوضيب مغلقة، لا حاجة لتسوية كميات متبقية.')
+        messages.warning(request, 'عملية التوضيب مغلقة، ولا يمكن تعديل مصير كميات فيها.')
         return redirect('packing_detail', pk=session.pk)
 
     if request.method == 'POST':
@@ -444,7 +444,7 @@ def packing_settle_leftovers(request, pk):
                 items=[{'pallet': pallet_id, 'resolution': resolution, 'notes': notes}],
                 user=request.user,
             )
-            messages.success(request, 'تم تسجيل تسوية الكمية الخام المتبقية بنجاح.')
+            messages.success(request, 'تم تسجيل مصير الكمية الخام المتبقية بنجاح.')
         except ValidationError as e:
             msg = ' '.join(e.messages) if e.messages else str(e)
             messages.error(request, msg)
