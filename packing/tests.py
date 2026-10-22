@@ -1127,11 +1127,12 @@ class PackagingItemsChargeTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'pkgItemTemplate')
         self.assertContains(resp, 'أصناف التغليف المستخدمة في هذا المقاس')
-        self.assertContains(resp, 'id="addOutputBatch"')
-        self.assertContains(resp, 'id="quickOutputSize"')
-        self.assertContains(resp, 'id="quickOutputCount"')
+        self.assertContains(resp, 'id="addOutputRow"')
+        self.assertContains(resp, 'إضافة طبلية ناتجة')
+        self.assertNotContains(resp, 'id="addOutputBatch"')
         self.assertContains(resp, 'id="sizesCounter"')
-        self.assertContains(resp, 'أدخل الوزن وعدد الصناديق الفعلي لكل طبلية على حدة')
+        self.assertContains(resp, 'id="pkgGrandTotal"')
+        self.assertContains(resp, 'إجمالي خصم أصناف التغليف على التاجر')
 
     def test_packing_detail_has_no_prefilled_output_row(self):
         """
