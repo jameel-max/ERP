@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from decimal import Decimal
 from django.utils import timezone
 from core.models import SystemSetting
+
 from operations.models import ColdStore, Shelf, Crop, BoxType, Trader, TraderPackingRate
 
 User = get_user_model()
@@ -22,6 +23,20 @@ class Command(BaseCommand):
             help='إنشاء بيانات تجريبية (برادات، أصناف بضاعة، أنواع صناديق، تاجر افتراضي). '
                  'لا تستخدمها في الإنتاج — الافتراضي هو نظام نظيف.',
         )
+
+        parser.add_argument(
+            '--keep-extra-users',
+            action='store_true',
+            help='الاحتفاظ بالمستخدمين الإضافيين وعدم حذفهم.',
+        )
+
+        parser.add_argument(
+            '--only-if-no-users',
+            action='store_true',
+            help='تهيئة حسابات الإدارة فقط إذا لم يوجد أي مستخدم.',
+        )
+
+
 
     def handle(self, *args, **options):
         self.stdout.write(self.style.NOTICE('بدء تهيئة النظام...'))
