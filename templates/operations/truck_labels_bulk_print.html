@@ -1,67 +1,81 @@
-{% load static %}<!DOCTYPE html>
+
+{% load static %}
+<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>طباعة ملصقات السيارة {{ truck.lot_number }} | {{ company_name_en }}</title>
-    <link rel="stylesheet" href="{% static 'vendor/cairo/cairo.css' %}">
+    <title>طباعة ملصقات QR</title>
     <style>
         @page {
-            size: 100mm 150mm;
+            size: 60mm 40mm;
             margin: 0;
         }
-        html, body {
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
             margin: 0;
             padding: 0;
+            width: 60mm;
             background: #fff;
-            font-family: 'Cairo', sans-serif;
+            font-family: sans-serif;
         }
-        .page-break {
-            page-break-after: always;
-            box-sizing: border-box;
-            width: 100mm;
-            height: 150mm;
+
+        .label {
+            width: 60mm;
+            height: 40mm;
+            margin: 0;
+            padding: 1mm;
             display: flex;
-            flex-direction: column;
-            gap: 3mm;
             align-items: center;
             justify-content: center;
+            overflow: hidden;
+            break-inside: avoid;
+            page-break-inside: avoid;
+            page-break-after: always;
+            break-after: page;
         }
-        .page-break:last-child {
+
+        .label:last-child {
             page-break-after: auto;
+            break-after: auto;
         }
-        .brand-mark {
-            width: 18mm;
-            height: 18mm;
-            object-fit: cover;
-            border-radius: 50%;
-        }
-        .qr-code {
+
+        .qr-only {
             display: block;
-            width: 86mm;
-            height: 86mm;
+            width: 36mm;
+            height: 36mm;
+            object-fit: contain;
             image-rendering: pixelated;
         }
+
         .no-print {
-            position: fixed;
-            top: 6px;
-            left: 6px;
+            padding: 10px;
             display: flex;
-            gap: 6px;
-            z-index: 10;
+            gap: 8px;
         }
+
         .no-print button,
         .no-print a {
-            font-family: 'Cairo', sans-serif;
-            font-size: 13px;
-            padding: 6px 14px;
-            border-radius: 6px;
+            padding: 8px 12px;
+            text-decoration: none;
             border: 1px solid #1B4D3E;
             background: #1B4D3E;
-            color: #fff;
+            color: white;
             cursor: pointer;
-            text-decoration: none;
         }
+
         @media print {
+            html,
+            body {
+                width: 60mm;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+
             .no-print {
                 display: none !important;
             }
@@ -70,16 +84,22 @@
 </head>
 <body>
     <div class="no-print">
-        <button type="button" onclick="window.print()">طباعة كل الملصقات</button>
-        <a href="{% url 'truck_detail' truck.pk %}">رجوع لتفاصيل السيارة</a>
+        <button type="button" onclick="window.print()">
+            طباعة الملصقات
+        </button>
+        <a href="{% url 'truck_detail' truck.pk %}">
+            رجوع
+        </a>
     </div>
 
-    <!-- كل صفحة = شعار الشركة ورمز QR كبير لسهولة التعرف والمسح -->
     {% for item in pallets_with_qr %}
-    <div class="page-break">
-        <img class="brand-mark" src="{% static 'images/royal-fruit-logo.jpg' %}" alt="{{ company_name_en }}">
-        <img class="qr-code" src="{{ item.qr_image_b64 }}" data-qr-url="{{ item.qr_url }}"
-             alt="QR {{ item.pallet.pallet_code }}">
+    <div class="label">
+        <img
+            class="qr-only"
+            src="{{ item.qr_image_b64 }}"
+            data-qr-url="{{ item.qr_url }}"
+            alt="QR {{ item.pallet.pallet_code }}"
+        >
     </div>
     {% endfor %}
 </body>
